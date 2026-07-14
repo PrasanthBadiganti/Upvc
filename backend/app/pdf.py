@@ -27,14 +27,14 @@ def build_invoice_pdf(invoice: Invoice) -> bytes:
     ]
     rows = [["#", "Description", "Category", "Qty", "Rate", "GST", "Amount"]]
     for i, item in enumerate(invoice.items, 1):
-        rows.append([str(i), item.description, item.category, f"{item.quantity}", f"₹ {item.rate:,.2f}", f"{item.gst_percent}%", f"₹ {item.amount:,.2f}"])
+        rows.append([str(i), item.description, item.category, f"{item.quantity}", f"Rs. {item.rate:,.2f}", f"{item.gst_percent}%", f"Rs. {item.amount:,.2f}"])
     rows.extend([
-        ["", "", "", "", "", "Subtotal", f"₹ {invoice.subtotal:,.2f}"],
-        ["", "", "", "", "", "CGST", f"₹ {invoice.cgst:,.2f}"],
-        ["", "", "", "", "", "SGST", f"₹ {invoice.sgst:,.2f}"],
-        ["", "", "", "", "", "Grand Total", f"₹ {invoice.grand_total:,.2f}"],
-        ["", "", "", "", "", "Paid", f"₹ {invoice.paid_amount:,.2f}"],
-        ["", "", "", "", "", "Balance", f"₹ {invoice.pending_balance:,.2f}"],
+        ["", "", "", "", "", "Subtotal", f"Rs. {invoice.subtotal:,.2f}"],
+        ["", "", "", "", "", "CGST", f"Rs. {invoice.cgst:,.2f}"],
+        ["", "", "", "", "", "SGST", f"Rs. {invoice.sgst:,.2f}"],
+        ["", "", "", "", "", "Grand Total", f"Rs. {invoice.grand_total:,.2f}"],
+        ["", "", "", "", "", "Paid", f"Rs. {invoice.paid_amount:,.2f}"],
+        ["", "", "", "", "", "Balance", f"Rs. {invoice.pending_balance:,.2f}"],
     ])
     table = Table(rows, colWidths=[10 * mm, 57 * mm, 26 * mm, 18 * mm, 23 * mm, 18 * mm, 28 * mm])
     table.setStyle(TableStyle([

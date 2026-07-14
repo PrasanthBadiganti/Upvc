@@ -1,8 +1,8 @@
-# UPVC Pro — Local Version Without Node or Docker
+# UPVC Pro -- Local Version Without Node or Docker
 
 This package contains the FastAPI backend, SQLite database, React source code, and a prebuilt frontend. Normal installation and startup require only Python. Node.js, npm, Docker, PostgreSQL, and any cloud service are not required.
 
-## Windows — recommended
+## Windows -- recommended
 
 1. Extract the ZIP fully to a normal folder such as `D:\Projects\upvc-pro-local-no-node`.
 2. Double-click `setup-local.bat` once.
@@ -11,6 +11,8 @@ This package contains the FastAPI backend, SQLite database, React source code, a
 5. Keep the command window open. Press `Ctrl+C` to stop the application.
 
 Requirements: Python 3.11 or newer. While installing Python, select **Add Python to PATH**.
+
+If port `8000` is already in use, `start-local.bat` automatically falls back to `http://127.0.0.1:8001` and prints the exact URL.
 
 ## Windows desktop app
 
@@ -73,7 +75,7 @@ setup-frontend.bat
 start-frontend-dev.bat
 ```
 
-This starts a separate Vite development server at `http://127.0.0.1:5173`. It proxies API calls to the FastAPI backend, so keep the backend running at `http://127.0.0.1:8001` while developing.
+This starts a separate Vite development server at `http://127.0.0.1:5173`. It proxies API calls to the FastAPI backend, so keep the backend running at `http://127.0.0.1:8001` while developing, or update `VITE_API_PROXY` if your backend is on a different port.
 
 To create a fresh production frontend build:
 

@@ -46,8 +46,9 @@ def health() -> dict[str, str]:
 def dashboard(db: Session = Depends(get_db)) -> schemas.DashboardResponse:
     customers = db.scalars(select(models.Customer)).all()
     invoices = db.scalars(select(models.Invoice)).all()
-    quotations = db.scalars(select(models.Quotation)).all()
+    quotations = db.scalars(select(models.Quotation).options(joinedload(models.Quotation.customer))).unique().all()
     followups = db.scalars(select(models.Followup).options(joinedload(models.Followup.customer))).unique().all()
+    payments = db.scalars(select(models.Payment).options(joinedload(models.Payment.invoice).joinedload(models.Invoice.customer))).unique().all()
 
     pending = sum((Decimal(i.pending_balance or 0) for i in invoices), Decimal("0"))
     received = sum((Decimal(i.paid_amount or 0) for i in invoices), Decimal("0"))
@@ -55,7 +56,7 @@ def dashboard(db: Session = Depends(get_db)) -> schemas.DashboardResponse:
         "total_leads": len(customers),
         "live_customers": sum(1 for c in customers if c.status in {"Live", "Completed"}),
         "pending_customers": sum(1 for c in customers if c.status in {"New", "Negotiation", "Quotation Sent"}),
-        "quotations_this_month": len(quotations),
+        "quotations_this_month": sum(1 for q in quotations if q.quotation_date.year == date.today().year and q.quotation_date.month == date.today().month),
         "pending_payments": float(pending),
         "revenue_received": float(received),
     }
@@ -83,19 +84,34 @@ def dashboard(db: Session = Depends(get_db)) -> schemas.DashboardResponse:
     customer_status = [{"name": name, "value": value} for name, value in status_counts.items()]
 
     pending_payments = []
-    for inv in sorted(invoices, key=lambda x: x.due_date)[:5]:
+    for inv in sorted((i for i in invoices if Decimal(i.pending_balance or 0) > 0), key=lambda x: x.due_date)[:5]:
         pending_payments.append({"customer": inv.customer.name, "invoice_no": inv.number, "due_date": inv.due_date.isoformat(), "balance": float(inv.pending_balance), "status": "Overdue" if inv.due_date < date.today() else "Due Soon"})
     today = date.today()
     today_followups = [
         {"time": f.scheduled_at.strftime("%I:%M %p"), "customer": f.customer.name, "purpose": f.purpose, "channel": f.channel}
         for f in followups if f.scheduled_at.date() == today
     ][:5]
+    activity_rows: list[dict[str, object]] = []
+    for quote in quotations:
+        activity_rows.append({"type": "quotation", "title": "Quotation Created", "detail": f"{quote.number} for {quote.customer.name}", "at": quote.created_at})
+    for invoice in invoices:
+        activity_rows.append({"type": "invoice", "title": "Invoice Generated", "detail": f"{invoice.number} for {invoice.customer.name}", "at": invoice.created_at})
+    for payment in payments:
+        activity_rows.append({"type": "payment", "title": "Payment Received", "detail": f"Rs. {Decimal(payment.amount):,.0f} from {payment.invoice.customer.name}", "at": payment.created_at})
+    for customer in customers:
+        activity_rows.append({"type": "customer", "title": "Customer Added", "detail": customer.name, "at": customer.created_at})
+    for followup in followups:
+        if followup.status == "Completed":
+            activity_rows.append({"type": "followup", "title": "Follow-up Completed", "detail": f"{followup.purpose} for {followup.customer.name}", "at": followup.created_at})
+    activity_rows.sort(key=lambda row: row["at"], reverse=True)
     recent_activity = [
-        {"type": "quotation", "title": "New Quotation Created", "detail": f"Quotation {quotations[-1].number} for {quotations[-1].customer.name}" if quotations else "Quotation created", "when": "10:15 AM"},
-        {"type": "invoice", "title": "Invoice Generated", "detail": f"Invoice {invoices[-1].number} for {invoices[-1].customer.name}" if invoices else "Invoice generated", "when": "09:45 AM"},
-        {"type": "payment", "title": "Payment Received", "detail": f"Payment of ₹ {received:,.0f} recorded", "when": "Yesterday"},
-        {"type": "customer", "title": "New Customer Added", "detail": f"{customers[-1].name} added as a new customer" if customers else "Customer added", "when": "Yesterday"},
-        {"type": "followup", "title": "Follow-up Completed", "detail": "Site visit completed for Sai Constructions", "when": "Yesterday"},
+        {
+            "type": str(row["type"]),
+            "title": str(row["title"]),
+            "detail": str(row["detail"]),
+            "when": row["at"].strftime("%d %b, %I:%M %p") if isinstance(row["at"], datetime) else "",
+        }
+        for row in activity_rows[:5]
     ]
     return schemas.DashboardResponse(metrics=metrics, monthly=monthly, customer_status=customer_status, pending_payments=pending_payments, today_followups=today_followups, recent_activity=recent_activity)
 

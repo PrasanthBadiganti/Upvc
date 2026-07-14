@@ -25,7 +25,7 @@ export default function CreateQuotation() {
   const [discount,setDiscount] = useState(5059.1);
   const [status,setStatus] = useState('Draft');
   const [saving,setSaving] = useState(false);
-  const [form,setForm] = useState({quotation_date:new Date().toISOString().slice(0,10),validity_days:30,sales_person:'Arun Verma',site_location:'Greenview Residency, Gandhinagar, Gujarat',address:'Plot No. 45, Sector 9, Gandhinagar, Gujarat - 382009',notes:'All dimensions are in mm. Delivery in 15–18 working days after confirmation.'});
+  const [form,setForm] = useState({quotation_date:new Date().toISOString().slice(0,10),validity_days:30,sales_person:'Arun Verma',site_location:'Greenview Residency, Gandhinagar, Gujarat',address:'Plot No. 45, Sector 9, Gandhinagar, Gujarat - 382009',notes:'All dimensions are in mm. Delivery in 15-18 working days after confirmation.'});
   useEffect(()=>{ api.get('/customers').then(r=>{setCustomers(r.data); if(r.data[0]) setCustomerId(r.data[0].id);}); },[]);
 
   const totals = useMemo(()=>{
@@ -79,7 +79,7 @@ export default function CreateQuotation() {
 
         <Card className="quote-items-card">
           <div className="quote-items-toolbar"><h3>Quotation Items</h3><div className="quote-items-actions"><Button tone="secondary"><FileDown size={15}/> Import from Excel</Button><Button onClick={()=>setItems([...items,emptyItem()])}><Plus size={15}/> Add Item</Button></div></div>
-          <div className="table-wrap"><table className="data-table editable-table"><thead><tr><th>S.No</th><th>Category</th><th>Style</th><th>Width (mm)</th><th>Height (mm)</th><th>SFT</th><th>Qty</th><th>Total SFT</th><th>Rate / SFT (₹)</th><th>Amount (₹)</th><th>Location</th><th>Action</th></tr></thead><tbody>{items.map((row,i)=><tr key={i}>
+          <div className="table-wrap"><table className="data-table editable-table"><thead><tr><th>S.No</th><th>Category</th><th>Style</th><th>Width (mm)</th><th>Height (mm)</th><th>SFT</th><th>Qty</th><th>Total SFT</th><th>Rate / SFT (Rs.)</th><th>Amount (Rs.)</th><th>Location</th><th>Action</th></tr></thead><tbody>{items.map((row,i)=><tr key={i}>
             <td>{i+1}</td>
             <td><input value={row.category} onChange={e=>update(i,'category',e.target.value)}/></td><td><input value={row.style} onChange={e=>update(i,'style',e.target.value)}/></td>
             <td><input type="number" value={row.width_mm} onChange={e=>update(i,'width_mm',e.target.value)}/></td><td><input type="number" value={row.height_mm} onChange={e=>update(i,'height_mm',e.target.value)}/></td>

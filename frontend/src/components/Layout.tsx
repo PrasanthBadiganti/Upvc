@@ -68,7 +68,7 @@ export default function Layout() {
           </div>
         </header>
         <main className="page-content"><Outlet /></main>
-        <footer className="footer"><span>© 2025 Crystal Frames Pvt. Ltd. All rights reserved.</span><span>Privacy Policy&nbsp;&nbsp;&nbsp;&nbsp; Terms of Service</span></footer>
+        <footer className="footer"><span>(c) 2025 Crystal Frames Pvt. Ltd. All rights reserved.</span><span>Privacy Policy&nbsp;&nbsp;&nbsp;&nbsp; Terms of Service</span></footer>
       </section>
     </div>
   );

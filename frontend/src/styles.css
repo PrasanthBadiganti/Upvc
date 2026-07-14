@@ -97,8 +97,8 @@ textarea.input { height: auto; min-height: 82px; padding-top: 10px; resize: vert
 .metric-copy small { color: #33425d; font-size: 11px; line-height: 1.2; }
 .metric-copy strong { font-size: 23px; margin-top: 10px; letter-spacing: -.25px; white-space: nowrap; }
 .metric-copy span { font-size: 10px; margin-top: 13px; color: #60708a; }
-.metric-copy .positive::before { content: '▲ '; color: #0caf74; }
-.metric-copy .negative::before { content: '▼ '; color: #ef4444; }
+.metric-copy .positive::before { content: '+ '; color: #0caf74; }
+.metric-copy .negative::before { content: '- '; color: #ef4444; }
 .table-wrap { overflow-x: auto; }
 table.data-table { width: 100%; border-collapse: collapse; }
 table.data-table th { height: 38px; text-align: left; padding: 0 12px; color: #40506a; font-size: 9.5px; font-weight: 700; background: #fbfcfe; border-bottom: 1px solid var(--border); white-space: nowrap; }
@@ -223,7 +223,7 @@ table.data-table .selected-row { background: #f7fbff; outline: 1px solid #8ab1ff
 .conditions { margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 13px; }
 .conditions h4 { margin: 0 0 10px; font-size: 11px; }
 .conditions p { font-size: 9.5px; margin: 8px 0; color: #52627a; }
-.conditions p:before { content: '✓'; color: #0caf74; font-weight: 700; margin-right: 8px; }
+.conditions p:before { content: 'OK'; color: #0caf74; font-weight: 700; margin-right: 8px; }
 .quote-actionbar { margin-top: 10px; display: flex; justify-content: flex-end; gap: 10px; }
 
 /* list pages */

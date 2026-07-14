@@ -17,16 +17,22 @@ if not exist "%ROOT%frontend\dist\index.html" (
 echo =============================================
 echo             UPVC Pro is starting
 echo =============================================
-echo Application: http://127.0.0.1:8000
-echo API docs:   http://127.0.0.1:8000/docs
+set "PORT=8000"
+"%ROOT%backend\.venv\Scripts\python.exe" -c "import socket,sys; s=socket.socket(); sys.exit(0 if s.connect_ex(('127.0.0.1',8000)) else 1)"
+if errorlevel 1 (
+  set "PORT=8001"
+  echo Port 8000 is already in use. Starting UPVC Pro on port 8001.
+)
+echo Application: http://127.0.0.1:%PORT%
+echo API docs:   http://127.0.0.1:%PORT%/docs
 echo.
 echo Keep this window open while using the software.
 echo Press Ctrl+C to stop it.
 echo.
 
-start "" http://127.0.0.1:8000
+start "" http://127.0.0.1:%PORT%
 cd /d "%ROOT%backend"
-".venv\Scripts\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+".venv\Scripts\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port %PORT%
 
 if errorlevel 1 (
   echo.

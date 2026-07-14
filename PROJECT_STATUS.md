@@ -304,10 +304,10 @@ Supported:
 Recently improved:
 
 - Monthly quotation/invoice chart now comes from database counts instead of fixed sample chart data.
+- Recent activity now comes from customers, quotations, invoices, payments, and completed follow-ups.
 
 Still partly static:
 
-- Recent activity still needs to become fully database-driven.
 - Some dashboard comparison text in frontend is still fixed copy.
 
 ### Settings
@@ -430,6 +430,8 @@ Last verified on 2026-07-14:
 - Vite `/api/health` proxy returned `{"status":"ok"}`
 - Desktop PyInstaller app folder built at `desktop-dist/UPVC Pro`
 - Source desktop launcher self-test passed with workspace data dir
+- Source text was normalized to avoid Windows/PDF mojibake for rupee symbols, dashes, bullets, and footer symbols.
+- `start-local.bat` now falls back from port `8000` to `8001` when `8000` is busy.
 
 Known environment notes:
 
@@ -441,10 +443,8 @@ Known environment notes:
 
 Phase 1 remaining cleanup:
 
-- Make recent activity fully database-driven.
-- Clean visible mojibake/encoding damage in README, seed data, PDFs, and UI strings.
 - Add a lightweight migration strategy before changing existing SQLite schema.
-- Add better startup diagnostics for port conflicts.
+- Add deeper startup diagnostics for port conflicts beyond the current `8000` -> `8001` fallback.
 
 Next business phases:
 
