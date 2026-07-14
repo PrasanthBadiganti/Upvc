@@ -125,6 +125,10 @@ class QuotationCreate(BaseModel):
     items: list[QuotationItemPayload]
 
 
+class QuotationUpdate(QuotationCreate):
+    pass
+
+
 class QuotationRead(ORMModel):
     id: int
     number: str

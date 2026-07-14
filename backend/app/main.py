@@ -19,7 +19,7 @@ from . import models, schemas
 from .database import Base, SessionLocal, engine, get_db
 from .pdf import build_invoice_pdf
 from .seed import seed_database
-from .services import convert_quotation_to_invoice, create_quotation, get_invoice, get_quotation, money, next_code, record_payment
+from .services import convert_quotation_to_invoice, create_quotation, duplicate_quotation, get_invoice, get_quotation, money, next_code, record_payment, update_quotation
 
 app = FastAPI(title="UPVC Pro API", version="1.0.0")
 app.add_middleware(
@@ -395,6 +395,18 @@ def add_quotation(payload: schemas.QuotationCreate, db: Session = Depends(get_db
     return create_quotation(db, payload)
 
 
+@app.put("/api/quotations/{quotation_id}", response_model=schemas.QuotationRead)
+def edit_quotation(quotation_id: int, payload: schemas.QuotationUpdate, db: Session = Depends(get_db)):
+    if not db.get(models.Customer, payload.customer_id):
+        raise HTTPException(404, "Customer not found")
+    try:
+        return update_quotation(db, quotation_id, payload)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(404, "Quotation not found") from exc
+
+
 @app.put("/api/quotations/{quotation_id}/status", response_model=schemas.QuotationRead)
 def update_quotation_status(quotation_id: int, status: str = Query(...), db: Session = Depends(get_db)):
     quote = db.get(models.Quotation, quotation_id)
@@ -403,6 +415,22 @@ def update_quotation_status(quotation_id: int, status: str = Query(...), db: Ses
     quote.status = status
     db.commit()
     return get_quotation(db, quotation_id)
+
+
+@app.post("/api/quotations/{quotation_id}/duplicate", response_model=schemas.QuotationRead, status_code=201)
+def duplicate_quote(quotation_id: int, db: Session = Depends(get_db)):
+    try:
+        return duplicate_quotation(db, quotation_id, revision=False)
+    except Exception as exc:
+        raise HTTPException(404, "Quotation not found") from exc
+
+
+@app.post("/api/quotations/{quotation_id}/revise", response_model=schemas.QuotationRead, status_code=201)
+def revise_quote(quotation_id: int, db: Session = Depends(get_db)):
+    try:
+        return duplicate_quotation(db, quotation_id, revision=True)
+    except Exception as exc:
+        raise HTTPException(404, "Quotation not found") from exc
 
 
 @app.post("/api/quotations/{quotation_id}/convert", response_model=schemas.InvoiceRead)

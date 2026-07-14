@@ -212,8 +212,13 @@ Supported:
 - Calculate SFT, total SFT, amount, subtotal, GST, grand total, advance, balance
 - Save draft
 - Send quotation
+- Edit draft, sent, and rejected quotations
+- Duplicate existing quotations into a new draft
+- Create revisions from existing quotations into a new editable draft
+- Lock accepted and converted quotations from direct editing
 - Update quotation status
 - Convert quotation to invoice
+- Select catalog/price-master items while building quotations
 - Browser print preview
 
 Statuses:
@@ -222,7 +227,7 @@ Statuses:
 - Sent
 - Accepted
 - Converted
-- Rejected is planned but not fully enforced
+- Rejected
 
 Dedicated backend quotation PDF is not implemented yet.
 
@@ -364,7 +369,10 @@ Quotations:
 - `GET /api/quotations`
 - `GET /api/quotations/{quotation_id}`
 - `POST /api/quotations`
+- `PUT /api/quotations/{quotation_id}`
 - `PUT /api/quotations/{quotation_id}/status`
+- `POST /api/quotations/{quotation_id}/duplicate`
+- `POST /api/quotations/{quotation_id}/revise`
 - `POST /api/quotations/{quotation_id}/convert`
 
 Invoices and payments:
@@ -419,6 +427,7 @@ Desktop packaged database path:
 - `/quotations`
 - `/quotations/new`
 - `/quotations/:id`
+- `/quotations/:id/edit`
 - `/invoices`
 - `/invoices/:id`
 - `/payments`
@@ -432,6 +441,7 @@ Desktop packaged database path:
 Last verified on 2026-07-14:
 
 - Backend tests passed: `3 passed`
+- Backend tests passed after Phase 4: `6 passed`
 - FastAPI served app shell successfully
 - Frontend dependencies installed
 - Fresh frontend build passed
@@ -443,6 +453,7 @@ Last verified on 2026-07-14:
 - `start-local.bat` now falls back from port `8000` to `8001` when `8000` is busy.
 - Phase 2 Customers completed: customer GST/notes, profile endpoint, real aggregates, timeline, side-panel replacement, and backend tests.
 - Phase 3 Catalog/Price Master completed: expanded material fields, safe SQLite migration, richer catalog UI, catalog summary endpoint, catalog-linked quotation items, and backend tests.
+- Phase 4 Quotation Builder completed: edit route, locked accepted/converted quotations, duplicate/revise actions, shared backend recalculation path, and backend tests.
 
 Known environment notes:
 
@@ -459,8 +470,6 @@ Phase 1 remaining cleanup:
 
 Next business phases:
 
-- Phase 4: stronger quotation builder workflows, quote duplication/revision, accepted quote locking, and smoother preview.
-- Phase 4: stronger quotation builder with catalog item picking, duplication, revisions, accepted quote locking.
 - Phase 5: backend quotation PDF.
 - Phase 6+: invoice/payment/report polishing.
 

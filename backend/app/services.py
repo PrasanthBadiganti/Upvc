@@ -33,23 +33,21 @@ def calculate_sft(width_mm: Decimal, height_mm: Decimal, minimum: Decimal = Deci
     return max(raw, Decimal(minimum)).quantize(TWOPLACES)
 
 
-def create_quotation(db: Session, payload: QuotationCreate) -> models.Quotation:
+def apply_quotation_payload(db: Session, quote: models.Quotation, payload: QuotationCreate) -> None:
     rule = db.get(models.PricingRule, 1)
     gst_rate = Decimal(rule.gst_rate if rule else 18)
 
-    quote = models.Quotation(
-        number=next_document_number(db, models.Quotation, "QT"),
-        customer_id=payload.customer_id,
-        quotation_date=payload.quotation_date,
-        validity_days=payload.validity_days,
-        sales_person=payload.sales_person,
-        site_location=payload.site_location,
-        address=payload.address,
-        status=payload.status,
-        transport=money(payload.transport),
-        discount=money(payload.discount),
-        notes=payload.notes,
-    )
+    quote.customer_id = payload.customer_id
+    quote.quotation_date = payload.quotation_date
+    quote.validity_days = payload.validity_days
+    quote.sales_person = payload.sales_person
+    quote.site_location = payload.site_location
+    quote.address = payload.address
+    quote.status = payload.status
+    quote.transport = money(payload.transport)
+    quote.discount = money(payload.discount)
+    quote.notes = payload.notes
+    quote.items.clear()
 
     subtotal = Decimal("0")
     for item in payload.items:
@@ -97,16 +95,90 @@ def create_quotation(db: Session, payload: QuotationCreate) -> models.Quotation:
     quote.advance = advance
     quote.balance = money(grand - advance)
 
+
+def refresh_customer_quote_value(db: Session, customer_id: int) -> None:
+    customer = db.get(models.Customer, customer_id)
+    if not customer:
+        return
+    total = db.scalar(select(func.sum(models.Quotation.grand_total)).where(models.Quotation.customer_id == customer_id)) or Decimal("0")
+    customer.quote_value = money(total)
+
+
+def create_quotation(db: Session, payload: QuotationCreate) -> models.Quotation:
+    quote = models.Quotation(number=next_document_number(db, models.Quotation, "QT"), customer_id=payload.customer_id)
+    apply_quotation_payload(db, quote, payload)
+
     customer = db.get(models.Customer, payload.customer_id)
     if customer:
-        customer.quote_value = money(Decimal(customer.quote_value or 0) + grand)
         customer.last_interaction = __import__("datetime").datetime.utcnow()
         if quote.status.lower() in {"sent", "quotation sent"}:
             customer.status = "Quotation Sent"
 
     db.add(quote)
     db.commit()
+    refresh_customer_quote_value(db, payload.customer_id)
+    db.commit()
     return get_quotation(db, quote.id)
+
+
+def update_quotation(db: Session, quotation_id: int, payload: QuotationCreate) -> models.Quotation:
+    quote = get_quotation(db, quotation_id)
+    if quote.status in {"Accepted", "Converted"}:
+        raise ValueError("Accepted or converted quotations are locked. Create a revision instead.")
+    old_customer_id = quote.customer_id
+    apply_quotation_payload(db, quote, payload)
+    customer = db.get(models.Customer, payload.customer_id)
+    if customer:
+        customer.last_interaction = __import__("datetime").datetime.utcnow()
+        if quote.status.lower() in {"sent", "quotation sent"}:
+            customer.status = "Quotation Sent"
+    db.commit()
+    refresh_customer_quote_value(db, old_customer_id)
+    if old_customer_id != payload.customer_id:
+        refresh_customer_quote_value(db, payload.customer_id)
+    db.commit()
+    return get_quotation(db, quotation_id)
+
+
+def duplicate_quotation(db: Session, quotation_id: int, revision: bool = False) -> models.Quotation:
+    quote = get_quotation(db, quotation_id)
+    payload = QuotationCreate(
+        customer_id=quote.customer_id,
+        quotation_date=date.today(),
+        validity_days=quote.validity_days,
+        sales_person=quote.sales_person,
+        site_location=quote.site_location,
+        address=quote.address,
+        status="Draft",
+        transport=quote.transport,
+        discount=quote.discount,
+        notes=(f"Revision of {quote.number}. {quote.notes}".strip() if revision else f"Duplicated from {quote.number}. {quote.notes}".strip()),
+        items=[
+            {
+                "catalog_item_id": item.catalog_item_id,
+                "category": item.category,
+                "style": item.style,
+                "width_mm": item.width_mm,
+                "height_mm": item.height_mm,
+                "sft": item.sft,
+                "quantity": item.quantity,
+                "total_sft": item.total_sft,
+                "rate_per_sft": item.rate_per_sft,
+                "amount": item.amount,
+                "location": item.location,
+                "profile": item.profile,
+                "color": item.color,
+                "track": item.track,
+                "glass": item.glass,
+                "glass_color": item.glass_color,
+                "hardware": item.hardware,
+                "reinforcement": item.reinforcement,
+                "mesh": item.mesh,
+            }
+            for item in quote.items
+        ],
+    )
+    return create_quotation(db, payload)
 
 
 def get_quotation(db: Session, quotation_id: int) -> models.Quotation:

@@ -152,6 +152,60 @@ def test_catalog_price_master_drives_quotation_item():
         assert item["mesh"] == "SS Mesh"
 
 
+def test_quotation_edit_duplicate_revise_and_lock():
+    with TestClient(app) as client:
+        customers = client.get("/api/customers").json()
+        payload = {
+            "customer_id": customers[0]["id"],
+            "quotation_date": "2026-07-14",
+            "validity_days": 30,
+            "sales_person": "Arun Verma",
+            "site_location": "Editable Site",
+            "address": "Editable Address",
+            "status": "Draft",
+            "transport": "500",
+            "discount": "0",
+            "notes": "Editable quote",
+            "items": [{
+                "category": "Sliding Window",
+                "style": "2 Track",
+                "width_mm": "1000",
+                "height_mm": "1000",
+                "sft": "10.76",
+                "quantity": 1,
+                "total_sft": "10.76",
+                "rate_per_sft": "800",
+                "amount": "8608",
+                "location": "Hall"
+            }]
+        }
+        quote = client.post("/api/quotations", json=payload)
+        assert quote.status_code == 201, quote.text
+        quote_id = quote.json()["id"]
+
+        edited_payload = {**payload, "site_location": "Edited Site", "transport": "1000"}
+        edited = client.put(f"/api/quotations/{quote_id}", json=edited_payload)
+        assert edited.status_code == 200, edited.text
+        assert edited.json()["site_location"] == "Edited Site"
+        assert edited.json()["transport"] == "1000.00"
+
+        duplicate = client.post(f"/api/quotations/{quote_id}/duplicate")
+        assert duplicate.status_code == 201, duplicate.text
+        assert duplicate.json()["id"] != quote_id
+        assert duplicate.json()["status"] == "Draft"
+        assert duplicate.json()["number"] != edited.json()["number"]
+
+        accepted = client.put(f"/api/quotations/{quote_id}/status", params={"status": "Accepted"})
+        assert accepted.status_code == 200, accepted.text
+        locked = client.put(f"/api/quotations/{quote_id}", json=edited_payload)
+        assert locked.status_code == 409
+
+        revision = client.post(f"/api/quotations/{quote_id}/revise")
+        assert revision.status_code == 201, revision.text
+        assert revision.json()["status"] == "Draft"
+        assert "Revision of" in revision.json()["notes"]
+
+
 def test_prebuilt_frontend_is_served():
     with TestClient(app) as client:
         root = client.get("/")

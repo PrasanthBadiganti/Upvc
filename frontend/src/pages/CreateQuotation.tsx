@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Boxes, CircleDot, DoorOpen, FileDown, Grid3X3, Layers3, Palette, Plus, Save, Send, Shield, Trash2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
 import { Button, Card, Field, Input, PageHeader, Select } from '../components/UI';
 import { CatalogItem, Customer, QuotationItem } from '../types';
@@ -18,6 +18,9 @@ const emptyItem = (): QuotationItem => ({catalog_item_id:null,category:'Sliding 
 
 export default function CreateQuotation() {
   const navigate = useNavigate();
+  const { id } = useParams();
+  const quoteId = id ? Number(id) : 0;
+  const isEditing = Boolean(quoteId);
   const [customers,setCustomers] = useState<Customer[]>([]);
   const [catalog,setCatalog] = useState<CatalogItem[]>([]);
   const [customerId,setCustomerId] = useState<number>(0);
@@ -27,7 +30,32 @@ export default function CreateQuotation() {
   const [status,setStatus] = useState('Draft');
   const [saving,setSaving] = useState(false);
   const [form,setForm] = useState({quotation_date:new Date().toISOString().slice(0,10),validity_days:30,sales_person:'Arun Verma',site_location:'Greenview Residency, Gandhinagar, Gujarat',address:'Plot No. 45, Sector 9, Gandhinagar, Gujarat - 382009',notes:'All dimensions are in mm. Delivery in 15-18 working days after confirmation.'});
-  useEffect(()=>{ api.get('/customers').then(r=>{setCustomers(r.data); if(r.data[0]) setCustomerId(r.data[0].id);}); api.get('/catalog',{params:{status:'Active'}}).then(r=>setCatalog(r.data)); },[]);
+  useEffect(()=>{ api.get('/customers').then(r=>{setCustomers(r.data); if(!isEditing && r.data[0]) setCustomerId(r.data[0].id);}); api.get('/catalog',{params:{status:'Active'}}).then(r=>setCatalog(r.data)); },[isEditing]);
+  useEffect(()=>{
+    if(!quoteId) return;
+    api.get(`/quotations/${quoteId}`).then(({data})=>{
+      if(['Accepted','Converted'].includes(data.status)) {
+        navigate(`/quotations/${quoteId}`);
+        return;
+      }
+      setCustomerId(data.customer_id);
+      setStatus(data.status);
+      setTransport(Number(data.transport));
+      setDiscount(Number(data.discount));
+      setForm({quotation_date:data.quotation_date,validity_days:data.validity_days,sales_person:data.sales_person,site_location:data.site_location,address:data.address,notes:data.notes});
+      setItems(data.items.map((item:QuotationItem)=>({
+        ...item,
+        catalog_item_id:item.catalog_item_id || null,
+        width_mm:Number(item.width_mm),
+        height_mm:Number(item.height_mm),
+        sft:Number(item.sft),
+        quantity:Number(item.quantity),
+        total_sft:Number(item.total_sft),
+        rate_per_sft:Number(item.rate_per_sft),
+        amount:Number(item.amount),
+      })));
+    });
+  },[quoteId,navigate]);
 
   const totals = useMemo(()=>{
     const subtotal = items.reduce((s,i)=>s+Number(i.amount||0),0);
@@ -84,15 +112,15 @@ export default function CreateQuotation() {
     try {
       const selected=customers.find(c=>c.id===customerId);
       const payload={customer_id:customerId,...form,status:send?'Sent':status,transport,discount,items,address:form.address || selected?.address || ''};
-      const {data}=await api.post('/quotations',payload);
-      navigate('/quotations',{state:{created:data.number}});
+      const {data}=isEditing ? await api.put(`/quotations/${quoteId}`,payload) : await api.post('/quotations',payload);
+      navigate(isEditing ? `/quotations/${data.id}` : '/quotations',{state:{created:data.number}});
     } finally { setSaving(false); }
   };
 
   const selected=customers.find(c=>c.id===customerId);
   const specSource = items.find(item => item.catalog_item_id) || items[0];
   return <>
-    <PageHeader title="Create Quotation" subtitle="Quotations / New Quotation" />
+    <PageHeader title={isEditing?'Edit Quotation':'Create Quotation'} subtitle={isEditing?'Update draft or sent quotation':'Quotations / New Quotation'} />
     <div className="quotation-layout">
       <div className="quote-main">
         <Card className="quote-form-card">
@@ -146,7 +174,7 @@ export default function CreateQuotation() {
           <div className="payment-terms"><h4>Payment Terms</h4><div className="terms-circles"><div><div className="term-circle">50%</div><b>Advance</b><small>On Confirmation</small></div><div><div className="term-circle amber">40%</div><b>During Production</b><small>Before Dispatch</small></div><div><div className="term-circle blue">10%</div><b>On Installation</b><small>After Completion</small></div></div></div>
           <div className="conditions"><h4>Terms & Conditions</h4><p>This quotation is valid for the period mentioned above.</p><p>GST as applicable will be charged extra.</p><p>Installation & Fixing as per standard scope.</p><p>Any changes in dimensions may affect the price.</p><p>Payment to be made as per terms mentioned.</p></div>
         </Card>
-        <div className="quote-actionbar"><Button tone="secondary" onClick={()=>save(false)} disabled={saving}><Save size={15}/> Save Draft</Button><Button tone="secondary" onClick={()=>window.print()}><FileDown size={15}/> Preview PDF</Button><Button onClick={()=>save(true)} disabled={saving}><Send size={15}/> Send Quotation</Button></div>
+          <div className="quote-actionbar"><Button tone="secondary" onClick={()=>save(false)} disabled={saving}><Save size={15}/> {isEditing?'Save Changes':'Save Draft'}</Button><Button tone="secondary" onClick={()=>window.print()}><FileDown size={15}/> Preview PDF</Button><Button onClick={()=>save(true)} disabled={saving}><Send size={15}/> Send Quotation</Button></div>
       </aside>
     </div>
   </>;
