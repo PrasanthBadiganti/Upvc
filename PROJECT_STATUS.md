@@ -315,11 +315,17 @@ Supported:
 - Pending payment table
 - Today's follow-ups
 - Reports summary endpoint
+- Monthly quotation, invoice, received, and pending trend
+- Collection aging buckets
+- Quotation conversion summary
+- Top pending collections table
+- Salesperson-wise quotation, invoice, and received totals
 
 Recently improved:
 
 - Monthly quotation/invoice chart now comes from database counts instead of fixed sample chart data.
 - Recent activity now comes from customers, quotations, invoices, payments, and completed follow-ups.
+- Reports page now uses real backend breakdowns for aging, conversion, pending collections, and salesperson performance.
 
 Still partly static:
 
@@ -462,6 +468,7 @@ Last verified on 2026-07-14:
 - Phase 4 Quotation Builder completed: edit route, locked accepted/converted quotations, duplicate/revise actions, shared backend recalculation path, and backend tests.
 - Phase 5 Quotation PDF completed: backend ReportLab quotation PDF endpoint, frontend download action, and backend tests.
 - Phase 6 Payment Receipt completed: backend receipt PDF endpoint, payment detail API, cancelled-invoice payment guard, receipt buttons, and backend tests.
+- Phase 6 Reports Polish completed: aging buckets, monthly financial trend, conversion summary, top pending collections, salesperson performance, frontend report tables/charts, and backend tests.
 
 Known environment notes:
 

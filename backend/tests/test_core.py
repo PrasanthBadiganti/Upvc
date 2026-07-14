@@ -322,6 +322,23 @@ def test_payment_receipt_pdf_and_cancelled_invoice_guard():
         assert "cancelled invoice" in cancelled_payment.json()["detail"].lower()
 
 
+def test_reports_include_collection_and_conversion_breakdowns():
+    with TestClient(app) as client:
+        report = client.get("/api/reports")
+        assert report.status_code == 200, report.text
+        data = report.json()
+        assert "monthly" in data
+        assert len(data["monthly"]) == 12
+        assert {"month", "quotation_value", "invoice_value", "received", "pending"} <= set(data["monthly"][0])
+        assert "aging" in data
+        assert {row["bucket"] for row in data["aging"]} == {"Current", "1-30 Days", "31-60 Days", "60+ Days"}
+        assert "top_pending" in data
+        assert "salesperson_summary" in data
+        assert data["salesperson_summary"]
+        assert "conversion_summary" in data
+        assert {"quotation_count", "converted_count", "open_count", "conversion_rate"} <= set(data["conversion_summary"])
+
+
 def test_prebuilt_frontend_is_served():
     with TestClient(app) as client:
         root = client.get("/")

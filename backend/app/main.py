@@ -542,12 +542,108 @@ def update_followup(followup_id: int, payload: schemas.FollowupCreate, db: Sessi
 
 @app.get("/api/reports")
 def reports(db: Session = Depends(get_db)):
-    total_quotes = db.scalar(select(func.sum(models.Quotation.grand_total))) or 0
-    total_invoices = db.scalar(select(func.sum(models.Invoice.grand_total))) or 0
-    received = db.scalar(select(func.sum(models.Payment.amount))) or 0
-    pending = db.scalar(select(func.sum(models.Invoice.pending_balance))) or 0
-    by_status = db.execute(select(models.Customer.status, func.count(models.Customer.id)).group_by(models.Customer.status)).all()
-    return {"total_quote_value": float(total_quotes), "total_invoice_value": float(total_invoices), "received": float(received), "pending": float(pending), "customer_status": [{"name": s, "value": c} for s, c in by_status]}
+    today = date.today()
+    customers = db.scalars(select(models.Customer)).all()
+    quotations = db.scalars(select(models.Quotation).options(joinedload(models.Quotation.customer))).unique().all()
+    invoices = db.scalars(select(models.Invoice).options(joinedload(models.Invoice.customer), joinedload(models.Invoice.quotation), selectinload(models.Invoice.payments))).unique().all()
+    payments = db.scalars(select(models.Payment).options(joinedload(models.Payment.invoice).joinedload(models.Invoice.customer))).unique().all()
+
+    active_invoices = [invoice for invoice in invoices if invoice.status != "Cancelled"]
+    pending_invoices = [invoice for invoice in active_invoices if Decimal(invoice.pending_balance or 0) > 0]
+    total_quotes = sum((Decimal(quote.grand_total or 0) for quote in quotations), Decimal("0"))
+    total_invoices = sum((Decimal(invoice.grand_total or 0) for invoice in active_invoices), Decimal("0"))
+    received = sum((Decimal(payment.amount or 0) for payment in payments if payment.invoice.status != "Cancelled"), Decimal("0"))
+    pending = sum((Decimal(invoice.pending_balance or 0) for invoice in pending_invoices), Decimal("0"))
+
+    by_status: dict[str, int] = {}
+    for customer in customers:
+        by_status[customer.status] = by_status.get(customer.status, 0) + 1
+
+    month_keys = []
+    current = today.replace(day=1)
+    for offset in range(11, -1, -1):
+        year = current.year
+        month = current.month - offset
+        while month <= 0:
+            month += 12
+            year -= 1
+        month_keys.append((year, month))
+    monthly = []
+    for year, month in month_keys:
+        monthly.append({
+            "month": date(year, month, 1).strftime("%b '%y"),
+            "quotation_value": float(sum((Decimal(q.grand_total or 0) for q in quotations if q.quotation_date.year == year and q.quotation_date.month == month), Decimal("0"))),
+            "invoice_value": float(sum((Decimal(i.grand_total or 0) for i in active_invoices if i.invoice_date.year == year and i.invoice_date.month == month), Decimal("0"))),
+            "received": float(sum((Decimal(p.amount or 0) for p in payments if p.payment_date.year == year and p.payment_date.month == month and p.invoice.status != "Cancelled"), Decimal("0"))),
+            "pending": float(sum((Decimal(i.pending_balance or 0) for i in pending_invoices if i.due_date.year == year and i.due_date.month == month), Decimal("0"))),
+        })
+
+    aging_defs = [
+        ("Current", None, 0),
+        ("1-30 Days", 1, 30),
+        ("31-60 Days", 31, 60),
+        ("60+ Days", 61, None),
+    ]
+    aging = []
+    for label, start, end in aging_defs:
+        rows = []
+        for invoice in pending_invoices:
+            overdue_days = (today - invoice.due_date).days
+            if start is None and overdue_days <= 0:
+                rows.append(invoice)
+            elif start is not None and end is not None and start <= overdue_days <= end:
+                rows.append(invoice)
+            elif start is not None and end is None and overdue_days >= start:
+                rows.append(invoice)
+        aging.append({"bucket": label, "count": len(rows), "amount": float(sum((Decimal(i.pending_balance or 0) for i in rows), Decimal("0")))})
+
+    top_pending = [
+        {
+            "customer": invoice.customer.name,
+            "invoice_no": invoice.number,
+            "due_date": invoice.due_date.isoformat(),
+            "days_overdue": max(0, (today - invoice.due_date).days),
+            "pending": float(invoice.pending_balance),
+            "status": "Overdue" if invoice.due_date < today else "Due Soon",
+        }
+        for invoice in sorted(pending_invoices, key=lambda row: Decimal(row.pending_balance or 0), reverse=True)[:10]
+    ]
+
+    salespeople = sorted({q.sales_person or "Unassigned" for q in quotations} | {c.assigned_to or "Unassigned" for c in customers})
+    salesperson_summary = []
+    for person in salespeople:
+        person_quotes = [q for q in quotations if (q.sales_person or "Unassigned") == person]
+        person_invoices = [i for i in active_invoices if (i.quotation.sales_person if i.quotation else i.customer.assigned_to) == person]
+        person_payments = [p for p in payments if p.invoice.status != "Cancelled" and (p.invoice.quotation.sales_person if p.invoice.quotation else p.invoice.customer.assigned_to) == person]
+        salesperson_summary.append({
+            "sales_person": person,
+            "quotation_count": len(person_quotes),
+            "quotation_value": float(sum((Decimal(q.grand_total or 0) for q in person_quotes), Decimal("0"))),
+            "invoice_count": len(person_invoices),
+            "invoice_value": float(sum((Decimal(i.grand_total or 0) for i in person_invoices), Decimal("0"))),
+            "received": float(sum((Decimal(p.amount or 0) for p in person_payments), Decimal("0"))),
+        })
+
+    converted_quotes = sum(1 for quote in quotations if quote.status == "Converted" or quote.invoice)
+    conversion_summary = {
+        "quotation_count": len(quotations),
+        "converted_count": converted_quotes,
+        "open_count": max(0, len(quotations) - converted_quotes),
+        "conversion_rate": round((converted_quotes / len(quotations) * 100), 2) if quotations else 0,
+    }
+
+    return {
+        "total_quote_value": float(total_quotes),
+        "total_invoice_value": float(total_invoices),
+        "received": float(received),
+        "pending": float(pending),
+        "customer_status": [{"name": status, "value": count} for status, count in sorted(by_status.items())],
+        "monthly": monthly,
+        "aging": aging,
+        "top_pending": top_pending,
+        "salesperson_summary": salesperson_summary,
+        "conversion_summary": conversion_summary,
+    }
 
 def _frontend_dist() -> Path:
     configured = os.getenv("UPVC_FRONTEND_DIST")
