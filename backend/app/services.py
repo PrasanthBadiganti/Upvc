@@ -279,3 +279,30 @@ def record_payment(db: Session, invoice_id: int, amount: Decimal, **kwargs) -> m
     db.commit()
     db.expire_all()
     return get_invoice(db, invoice_id)
+
+
+def cancel_invoice(db: Session, invoice_id: int, force: bool = False) -> models.Invoice:
+    invoice = get_invoice(db, invoice_id)
+    if invoice.status == "Cancelled":
+        return invoice
+    if invoice.status == "Paid" and not force:
+        raise ValueError("Fully paid invoices require force=true to cancel")
+    customer = invoice.customer
+    customer.pending_payment = money(max(Decimal("0"), Decimal(customer.pending_payment or 0) - Decimal(invoice.pending_balance or 0)))
+    invoice.status = "Cancelled"
+    db.commit()
+    db.expire_all()
+    return get_invoice(db, invoice_id)
+
+
+def reopen_invoice(db: Session, invoice_id: int) -> models.Invoice:
+    invoice = get_invoice(db, invoice_id)
+    if invoice.status != "Cancelled":
+        return invoice
+    pending = Decimal(invoice.pending_balance or 0)
+    paid = Decimal(invoice.paid_amount or 0)
+    invoice.status = "Paid" if pending <= 0 else "Partially Paid" if paid > 0 else "Unpaid"
+    invoice.customer.pending_payment = money(Decimal(invoice.customer.pending_payment or 0) + pending)
+    db.commit()
+    db.expire_all()
+    return get_invoice(db, invoice_id)

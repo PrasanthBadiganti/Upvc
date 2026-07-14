@@ -19,7 +19,7 @@ from . import models, schemas
 from .database import Base, DEFAULT_DB_PATH, SessionLocal, engine, get_db
 from .pdf import build_invoice_pdf, build_payment_receipt_pdf, build_quotation_pdf
 from .seed import seed_database
-from .services import convert_quotation_to_invoice, create_quotation, duplicate_quotation, get_invoice, get_payment, get_quotation, money, next_code, record_payment, update_quotation
+from .services import cancel_invoice, convert_quotation_to_invoice, create_quotation, duplicate_quotation, get_invoice, get_payment, get_quotation, money, next_code, record_payment, reopen_invoice, update_quotation
 
 app = FastAPI(title="UPVC Pro API", version="1.0.0")
 app.add_middleware(
@@ -554,6 +554,24 @@ def add_payment(invoice_id: int, payload: schemas.PaymentCreate, db: Session = D
         return record_payment(db, invoice_id, payload.amount, **payload.model_dump(exclude={"amount"}))
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(404, "Invoice not found") from exc
+
+
+@app.post("/api/invoices/{invoice_id}/cancel", response_model=schemas.InvoiceRead)
+def cancel_invoice_endpoint(invoice_id: int, force: bool = Query(False), db: Session = Depends(get_db)):
+    try:
+        return cancel_invoice(db, invoice_id, force=force)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(404, "Invoice not found") from exc
+
+
+@app.post("/api/invoices/{invoice_id}/reopen", response_model=schemas.InvoiceRead)
+def reopen_invoice_endpoint(invoice_id: int, db: Session = Depends(get_db)):
+    try:
+        return reopen_invoice(db, invoice_id)
     except Exception as exc:
         raise HTTPException(404, "Invoice not found") from exc
 

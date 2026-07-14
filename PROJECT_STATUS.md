@@ -243,13 +243,17 @@ Supported:
 - Prevent duplicate invoice generation from same quotation
 - Track subtotal, CGST, SGST, grand total, paid amount, pending balance
 - Download backend-generated invoice PDF
+- Cancel invoice with business rules
+- Reopen cancelled invoice
+- Block payments on cancelled invoices
+- Require explicit force cancellation for fully paid invoices
 
 Statuses:
 
 - Unpaid
 - Partially Paid
 - Paid
-- Cancelled is planned but not fully exposed
+- Cancelled
 
 ### Payments
 
@@ -398,6 +402,8 @@ Invoices and payments:
 - `GET /api/invoices/{invoice_id}`
 - `GET /api/invoices/{invoice_id}/pdf`
 - `POST /api/invoices/{invoice_id}/payments`
+- `POST /api/invoices/{invoice_id}/cancel`
+- `POST /api/invoices/{invoice_id}/reopen`
 - `GET /api/payments`
 - `GET /api/payments/{payment_id}`
 - `GET /api/payments/{payment_id}/receipt`
@@ -478,6 +484,7 @@ Last verified on 2026-07-14:
 - Phase 6 Reports Polish completed: aging buckets, monthly financial trend, conversion summary, top pending collections, salesperson performance, frontend report tables/charts, and backend tests.
 - Phase 7 Settings and Document Templates completed: persistent business profile, bank details, document terms, quotation sharing action, and modern branded quotation/invoice/receipt PDFs.
 - Phase 7 Logo Branding completed: image logo upload, preview, removal, static serving, PDF image rendering with text fallback, and backend tests.
+- Phase 8 Invoice Lifecycle completed: cancel/reopen APIs, paid-invoice force rule, cancelled-payment block, list/detail UI actions, and backend tests.
 
 Known environment notes:
 

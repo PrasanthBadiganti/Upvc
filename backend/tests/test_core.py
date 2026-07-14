@@ -324,6 +324,60 @@ def test_payment_receipt_pdf_and_cancelled_invoice_guard():
         assert "cancelled invoice" in cancelled_payment.json()["detail"].lower()
 
 
+def test_invoice_cancel_reopen_and_force_rules():
+    with TestClient(app) as client:
+        customers = client.get("/api/customers").json()
+        payload = {
+            "customer_id": customers[0]["id"],
+            "quotation_date": "2026-07-14",
+            "validity_days": 30,
+            "sales_person": "Arun Verma",
+            "site_location": "Lifecycle Site",
+            "address": "Lifecycle Address",
+            "status": "Sent",
+            "transport": "0",
+            "discount": "0",
+            "notes": "Lifecycle flow",
+            "items": [{
+                "category": "Fixed Glass",
+                "style": "Fixed",
+                "width_mm": "1000",
+                "height_mm": "1000",
+                "sft": "10.76",
+                "quantity": 1,
+                "total_sft": "10.76",
+                "rate_per_sft": "700",
+                "amount": "7532",
+                "location": "Study"
+            }]
+        }
+        quote = client.post("/api/quotations", json=payload)
+        assert quote.status_code == 201, quote.text
+        invoice = client.post(f"/api/quotations/{quote.json()['id']}/convert")
+        assert invoice.status_code == 200, invoice.text
+        invoice_id = invoice.json()["id"]
+
+        cancelled = client.post(f"/api/invoices/{invoice_id}/cancel")
+        assert cancelled.status_code == 200, cancelled.text
+        assert cancelled.json()["status"] == "Cancelled"
+        blocked = client.post(f"/api/invoices/{invoice_id}/payments", json={"payment_date": "2026-07-14", "mode": "Cash", "reference_number": "BLOCKED", "amount": "10", "received_by": "Admin", "notes": ""})
+        assert blocked.status_code == 400
+        assert "cancelled invoice" in blocked.json()["detail"].lower()
+
+        reopened = client.post(f"/api/invoices/{invoice_id}/reopen")
+        assert reopened.status_code == 200, reopened.text
+        assert reopened.json()["status"] == "Unpaid"
+
+        paid = client.post(f"/api/invoices/{invoice_id}/payments", json={"payment_date": "2026-07-14", "mode": "UPI", "reference_number": "FULL", "amount": reopened.json()["pending_balance"], "received_by": "Admin", "notes": ""})
+        assert paid.status_code == 201, paid.text
+        assert paid.json()["status"] == "Paid"
+        no_force = client.post(f"/api/invoices/{invoice_id}/cancel")
+        assert no_force.status_code == 400
+        forced = client.post(f"/api/invoices/{invoice_id}/cancel", params={"force": "true"})
+        assert forced.status_code == 200, forced.text
+        assert forced.json()["status"] == "Cancelled"
+
+
 def test_business_settings_drive_document_generation():
     with TestClient(app) as client:
         settings = client.get("/api/business-settings")
