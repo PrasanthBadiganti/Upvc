@@ -16,6 +16,7 @@ class CustomerBase(BaseModel):
     phone: str = ""
     email: str = ""
     address: str = ""
+    gst_number: str = ""
     project_site: str = ""
     status: str = "New"
     last_interaction: datetime | None = None
@@ -23,6 +24,7 @@ class CustomerBase(BaseModel):
     quote_value: Decimal = Decimal("0")
     pending_payment: Decimal = Decimal("0")
     assigned_to: str = "Arun Verma"
+    notes: str = ""
 
 
 class CustomerCreate(CustomerBase):
@@ -198,6 +200,58 @@ class FollowupRead(FollowupCreate, ORMModel):
     id: int
     created_at: datetime
     customer: CustomerRead
+
+
+class CustomerQuotationSummary(ORMModel):
+    id: int
+    number: str
+    quotation_date: date
+    status: str
+    grand_total: Decimal
+    balance: Decimal
+    created_at: datetime
+
+
+class CustomerInvoiceSummary(ORMModel):
+    id: int
+    number: str
+    invoice_date: date
+    due_date: date
+    status: str
+    grand_total: Decimal
+    paid_amount: Decimal
+    pending_balance: Decimal
+    created_at: datetime
+
+
+class CustomerPaymentSummary(ORMModel):
+    id: int
+    invoice_id: int
+    payment_date: date
+    mode: str
+    reference_number: str
+    amount: Decimal
+    received_by: str
+    notes: str
+    created_at: datetime
+    invoice_number: str
+
+
+class CustomerTimelineItem(BaseModel):
+    type: str
+    title: str
+    detail: str
+    at: datetime
+
+
+class CustomerProfileResponse(BaseModel):
+    customer: CustomerRead
+    metrics: dict[str, Any]
+    quotations: list[CustomerQuotationSummary]
+    invoices: list[CustomerInvoiceSummary]
+    payments: list[CustomerPaymentSummary]
+    followups: list[FollowupRead]
+    timeline: list[CustomerTimelineItem]
 
 
 class DashboardResponse(BaseModel):

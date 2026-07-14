@@ -55,6 +55,36 @@ def test_core_flow():
         assert payment.json()["status"] == "Partially Paid"
 
 
+def test_customer_profile_and_extended_fields():
+    with TestClient(app) as client:
+        customers = client.get("/api/customers").json()
+        assert customers
+        customer = customers[0]
+        payload = {
+            **{key: customer[key] for key in [
+                "name", "phone", "email", "address", "project_site", "status",
+                "quote_value", "pending_payment", "assigned_to",
+            ]},
+            "gst_number": "27AAACG1234A1Z5",
+            "notes": "Phase 2 profile test note",
+            "last_interaction": customer["last_interaction"],
+            "next_followup": customer["next_followup"],
+        }
+        updated = client.put(f"/api/customers/{customer['id']}", json=payload)
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["gst_number"] == "27AAACG1234A1Z5"
+        assert updated.json()["notes"] == "Phase 2 profile test note"
+
+        profile = client.get(f"/api/customers/{customer['id']}/profile")
+        assert profile.status_code == 200, profile.text
+        data = profile.json()
+        assert data["customer"]["id"] == customer["id"]
+        assert "quotation_count" in data["metrics"]
+        assert "pending_amount" in data["metrics"]
+        assert isinstance(data["timeline"], list)
+        assert data["timeline"]
+
+
 def test_prebuilt_frontend_is_served():
     with TestClient(app) as client:
         root = client.get("/")

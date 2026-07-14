@@ -152,12 +152,15 @@ Supported:
 - List customers
 - Search by name, phone, email
 - Filter by status
+- Filter by assigned salesperson in the frontend
 - Add customer
 - Edit customer
 - Delete customer via API
-- Store contact details, address, project/site, status, assigned salesperson
-- Track quote value and pending payment
-- Show customer detail side panel
+- Store contact details, address, GST number, project/site, status, assigned salesperson, notes
+- Track quotation value, invoice value, paid amount, and pending amount from related records
+- Show customer detail side panel with real profile data
+- Show customer quotations, invoices, payments, follow-ups, and timeline through profile API
+- Backfill GST/notes for bundled sample customers
 
 Statuses:
 
@@ -337,6 +340,7 @@ Dashboard and reports:
 Customers:
 
 - `GET /api/customers`
+- `GET /api/customers/{customer_id}/profile`
 - `POST /api/customers`
 - `PUT /api/customers/{customer_id}`
 - `DELETE /api/customers/{customer_id}`
@@ -432,6 +436,7 @@ Last verified on 2026-07-14:
 - Source desktop launcher self-test passed with workspace data dir
 - Source text was normalized to avoid Windows/PDF mojibake for rupee symbols, dashes, bullets, and footer symbols.
 - `start-local.bat` now falls back from port `8000` to `8001` when `8000` is busy.
+- Phase 2 Customers completed: customer GST/notes, profile endpoint, real aggregates, timeline, side-panel replacement, and backend tests.
 
 Known environment notes:
 
@@ -448,7 +453,6 @@ Phase 1 remaining cleanup:
 
 Next business phases:
 
-- Phase 2: customer history/timeline, follow-up notes, reliable customer aggregates.
 - Phase 3: richer inventory/material/price-master fields and product-specific SFT rules.
 - Phase 4: stronger quotation builder with catalog item picking, duplication, revisions, accepted quote locking.
 - Phase 5: backend quotation PDF.

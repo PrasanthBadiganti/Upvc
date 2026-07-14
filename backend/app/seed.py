@@ -13,18 +13,19 @@ from .services import convert_quotation_to_invoice, create_quotation, record_pay
 
 def seed_database(db: Session) -> None:
     if db.scalar(select(models.Customer.id).limit(1)) is not None:
+        backfill_customer_details(db)
         return
 
     now = datetime.now().replace(second=0, microsecond=0)
     customers = [
-        models.Customer(code="CUST-0001", name="Greenview Builders", phone="+91 98765 43210", email="info@greenview.in", address="Office No. 501, Galaxy Tower, Baner, Pune - 411045, Maharashtra", project_site="Greenview Residency, Pune", status="Quotation Sent", last_interaction=now - timedelta(days=1), next_followup=now + timedelta(days=1), quote_value=Decimal("1345600"), pending_payment=Decimal("215000"), assigned_to="Arun Verma"),
-        models.Customer(code="CUST-0002", name="Sharma Residency", phone="+91 98211 22334", email="sharma.r@residency.in", address="Lucknow, Uttar Pradesh", project_site="Sharma Residency, Lucknow", status="Negotiation", last_interaction=now - timedelta(days=2), next_followup=now + timedelta(days=2), quote_value=Decimal("987500"), pending_payment=Decimal("120000"), assigned_to="Neha Kapoor"),
-        models.Customer(code="CUST-0003", name="Sai Constructions", phone="+91 99887 66554", email="projects@saicon.in", address="Hyderabad, Telangana", project_site="Sai Heights, Hyderabad", status="Live", last_interaction=now - timedelta(days=3), next_followup=now + timedelta(days=4), quote_value=Decimal("1875300"), pending_payment=Decimal("0"), assigned_to="Rohit Singh"),
-        models.Customer(code="CUST-0004", name="Urban Spaces", phone="+91 98203 88477", email="info@urbanspaces.in", address="Bengaluru, Karnataka", project_site="Urbania, Bengaluru", status="New", last_interaction=now - timedelta(days=4), next_followup=now + timedelta(hours=5), quote_value=Decimal("456000"), pending_payment=Decimal("456000"), assigned_to="Arun Verma"),
-        models.Customer(code="CUST-0005", name="Apex Developers", phone="+91 98111 22345", email="contact@apexdev.in", address="Noida, Uttar Pradesh", project_site="Apex Enclave, Noida", status="Completed", last_interaction=now - timedelta(days=7), quote_value=Decimal("1120800"), pending_payment=Decimal("0"), assigned_to="Neha Kapoor"),
-        models.Customer(code="CUST-0006", name="Skyline Infra", phone="+91 98990 11223", email="purchase@skyline.in", address="Chennai, Tamil Nadu", project_site="Skyline Towers, Chennai", status="Live", last_interaction=now - timedelta(days=8), next_followup=now + timedelta(days=5), quote_value=Decimal("2235000"), pending_payment=Decimal("345000"), assigned_to="Rohit Singh"),
-        models.Customer(code="CUST-0007", name="Dream Homes", phone="+91 99555 66778", email="hello@dreamhomes.in", address="Jaipur, Rajasthan", project_site="Dream Villas, Jaipur", status="Negotiation", last_interaction=now - timedelta(days=9), next_followup=now + timedelta(days=3), quote_value=Decimal("678900"), pending_payment=Decimal("50000"), assigned_to="Arun Verma"),
-        models.Customer(code="CUST-0008", name="Classic Associates", phone="+91 98100 88991", email="projects@classic.in", address="Kolkata, West Bengal", project_site="Classic Grande, Kolkata", status="Lost", last_interaction=now - timedelta(days=10), quote_value=Decimal("210000"), pending_payment=Decimal("0"), assigned_to="Neha Kapoor"),
+        models.Customer(code="CUST-0001", name="Greenview Builders", phone="+91 98765 43210", email="info@greenview.in", address="Office No. 501, Galaxy Tower, Baner, Pune - 411045, Maharashtra", gst_number="27AAACG1234A1Z5", project_site="Greenview Residency, Pune", status="Quotation Sent", last_interaction=now - timedelta(days=1), next_followup=now + timedelta(days=1), quote_value=Decimal("1345600"), pending_payment=Decimal("215000"), assigned_to="Arun Verma", notes="Prefers premium profile and toughened glass options."),
+        models.Customer(code="CUST-0002", name="Sharma Residency", phone="+91 98211 22334", email="sharma.r@residency.in", address="Lucknow, Uttar Pradesh", gst_number="09AAXCS5555L1Z2", project_site="Sharma Residency, Lucknow", status="Negotiation", last_interaction=now - timedelta(days=2), next_followup=now + timedelta(days=2), quote_value=Decimal("987500"), pending_payment=Decimal("120000"), assigned_to="Neha Kapoor", notes="Awaiting final approval from society committee."),
+        models.Customer(code="CUST-0003", name="Sai Constructions", phone="+91 99887 66554", email="projects@saicon.in", address="Hyderabad, Telangana", gst_number="36AAECS7777F1Z8", project_site="Sai Heights, Hyderabad", status="Live", last_interaction=now - timedelta(days=3), next_followup=now + timedelta(days=4), quote_value=Decimal("1875300"), pending_payment=Decimal("0"), assigned_to="Rohit Singh", notes="Large ongoing project with phased delivery."),
+        models.Customer(code="CUST-0004", name="Urban Spaces", phone="+91 98203 88477", email="info@urbanspaces.in", address="Bengaluru, Karnataka", gst_number="29AACCU2222P1Z7", project_site="Urbania, Bengaluru", status="New", last_interaction=now - timedelta(days=4), next_followup=now + timedelta(hours=5), quote_value=Decimal("456000"), pending_payment=Decimal("456000"), assigned_to="Arun Verma", notes="Needs site measurement before quote revision."),
+        models.Customer(code="CUST-0005", name="Apex Developers", phone="+91 98111 22345", email="contact@apexdev.in", address="Noida, Uttar Pradesh", gst_number="09AACCA9876M1Z4", project_site="Apex Enclave, Noida", status="Completed", last_interaction=now - timedelta(days=7), quote_value=Decimal("1120800"), pending_payment=Decimal("0"), assigned_to="Neha Kapoor", notes="Completed customer. Useful reference project."),
+        models.Customer(code="CUST-0006", name="Skyline Infra", phone="+91 98990 11223", email="purchase@skyline.in", address="Chennai, Tamil Nadu", gst_number="33AAACS6543D1Z1", project_site="Skyline Towers, Chennai", status="Live", last_interaction=now - timedelta(days=8), next_followup=now + timedelta(days=5), quote_value=Decimal("2235000"), pending_payment=Decimal("345000"), assigned_to="Rohit Singh", notes="Pending balance to be followed after delivery."),
+        models.Customer(code="CUST-0007", name="Dream Homes", phone="+91 99555 66778", email="hello@dreamhomes.in", address="Jaipur, Rajasthan", gst_number="08AACCD4567K1Z9", project_site="Dream Villas, Jaipur", status="Negotiation", last_interaction=now - timedelta(days=9), next_followup=now + timedelta(days=3), quote_value=Decimal("678900"), pending_payment=Decimal("50000"), assigned_to="Arun Verma", notes="Interested in color laminate upgrade."),
+        models.Customer(code="CUST-0008", name="Classic Associates", phone="+91 98100 88991", email="projects@classic.in", address="Kolkata, West Bengal", gst_number="19AACCC2222A1Z3", project_site="Classic Grande, Kolkata", status="Lost", last_interaction=now - timedelta(days=10), quote_value=Decimal("210000"), pending_payment=Decimal("0"), assigned_to="Neha Kapoor", notes="Lost due to budget constraints."),
     ]
     db.add_all(customers)
 
@@ -87,3 +88,28 @@ def seed_database(db: Session) -> None:
     for customer, purpose, priority, channel, when, note in purposes:
         db.add(models.Followup(customer_id=customer.id, scheduled_at=when, purpose=purpose, assigned_to=customer.assigned_to, priority=priority, channel=channel, status="Today", next_reminder=when + timedelta(hours=4), notes=note))
     db.commit()
+    backfill_customer_details(db)
+
+
+def backfill_customer_details(db: Session) -> None:
+    details = {
+        "Greenview Builders": ("27AAACG1234A1Z5", "Prefers premium profile and toughened glass options."),
+        "Sharma Residency": ("09AAXCS5555L1Z2", "Awaiting final approval from society committee."),
+        "Sai Constructions": ("36AAECS7777F1Z8", "Large ongoing project with phased delivery."),
+        "Urban Spaces": ("29AACCU2222P1Z7", "Needs site measurement before quote revision."),
+        "Apex Developers": ("09AACCA9876M1Z4", "Completed customer. Useful reference project."),
+        "Skyline Infra": ("33AAACS6543D1Z1", "Pending balance to be followed after delivery."),
+        "Dream Homes": ("08AACCD4567K1Z9", "Interested in color laminate upgrade."),
+        "Classic Associates": ("19AACCC2222A1Z3", "Lost due to budget constraints."),
+    }
+    changed = False
+    for customer in db.scalars(select(models.Customer)).all():
+        gst_number, notes = details.get(customer.name, ("", ""))
+        if gst_number and not customer.gst_number:
+            customer.gst_number = gst_number
+            changed = True
+        if notes and not customer.notes:
+            customer.notes = notes
+            changed = True
+    if changed:
+        db.commit()

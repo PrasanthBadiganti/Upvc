@@ -18,6 +18,7 @@ class Customer(Base):
     phone: Mapped[str] = mapped_column(String(30), default="")
     email: Mapped[str] = mapped_column(String(160), default="")
     address: Mapped[str] = mapped_column(Text, default="")
+    gst_number: Mapped[str] = mapped_column(String(40), default="")
     project_site: Mapped[str] = mapped_column(String(200), default="")
     status: Mapped[str] = mapped_column(String(40), default="New", index=True)
     last_interaction: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -25,6 +26,7 @@ class Customer(Base):
     quote_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     pending_payment: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     assigned_to: Mapped[str] = mapped_column(String(120), default="Arun Verma")
+    notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     quotations: Mapped[list["Quotation"]] = relationship(back_populates="customer", cascade="all, delete-orphan")

@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, or_, select
+from sqlalchemy import text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from . import models, schemas
@@ -33,13 +34,93 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     Base.metadata.create_all(bind=engine)
+    ensure_schema()
     with SessionLocal() as db:
         seed_database(db)
+
+
+def ensure_schema() -> None:
+    if not engine.url.drivername.startswith("sqlite"):
+        return
+    customer_columns = {
+        "gst_number": "VARCHAR(40) DEFAULT ''",
+        "notes": "TEXT DEFAULT ''",
+    }
+    with engine.begin() as connection:
+        existing = {row[1] for row in connection.execute(text("PRAGMA table_info(customers)"))}
+        for column, definition in customer_columns.items():
+            if column not in existing:
+                connection.execute(text(f"ALTER TABLE customers ADD COLUMN {column} {definition}"))
 
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def sync_customer_financials(customer: models.Customer) -> None:
+    customer.quote_value = money(sum((Decimal(q.grand_total or 0) for q in customer.quotations), Decimal("0")))
+    invoice_total = sum((Decimal(i.grand_total or 0) for i in customer.invoices), Decimal("0"))
+    paid_total = sum((Decimal(i.paid_amount or 0) for i in customer.invoices), Decimal("0"))
+    pending_total = sum((Decimal(i.pending_balance or 0) for i in customer.invoices), Decimal("0"))
+    customer.pending_payment = money(pending_total)
+    customer._invoice_total = money(invoice_total)
+    customer._paid_total = money(paid_total)
+
+
+def build_customer_profile(customer: models.Customer) -> schemas.CustomerProfileResponse:
+    sync_customer_financials(customer)
+    quotations = sorted(customer.quotations, key=lambda q: q.created_at, reverse=True)
+    invoices = sorted(customer.invoices, key=lambda i: i.created_at, reverse=True)
+    followups = sorted(customer.followups, key=lambda f: f.scheduled_at, reverse=True)
+    payments = sorted((payment for invoice in invoices for payment in invoice.payments), key=lambda p: p.created_at, reverse=True)
+
+    timeline: list[schemas.CustomerTimelineItem] = [
+        schemas.CustomerTimelineItem(type="customer", title="Customer Added", detail=f"{customer.name} created", at=customer.created_at)
+    ]
+    for quote in quotations:
+        timeline.append(schemas.CustomerTimelineItem(type="quotation", title=f"Quotation {quote.status}", detail=f"{quote.number} - Rs. {Decimal(quote.grand_total or 0):,.0f}", at=quote.created_at))
+    for invoice in invoices:
+        timeline.append(schemas.CustomerTimelineItem(type="invoice", title=f"Invoice {invoice.status}", detail=f"{invoice.number} - Rs. {Decimal(invoice.grand_total or 0):,.0f}", at=invoice.created_at))
+    for payment in payments:
+        timeline.append(schemas.CustomerTimelineItem(type="payment", title="Payment Received", detail=f"Rs. {Decimal(payment.amount or 0):,.0f} via {payment.mode}", at=payment.created_at))
+    for followup in followups:
+        timeline.append(schemas.CustomerTimelineItem(type="followup", title=f"Follow-up {followup.status}", detail=f"{followup.purpose} via {followup.channel}", at=followup.created_at))
+    timeline.sort(key=lambda row: row.at, reverse=True)
+
+    metrics = {
+        "quotation_count": len(quotations),
+        "quotation_value": float(customer.quote_value),
+        "invoice_count": len(invoices),
+        "invoice_value": float(getattr(customer, "_invoice_total", Decimal("0"))),
+        "paid_amount": float(getattr(customer, "_paid_total", Decimal("0"))),
+        "pending_amount": float(customer.pending_payment),
+        "followup_count": len(followups),
+        "open_followups": sum(1 for f in followups if f.status != "Completed"),
+    }
+    return schemas.CustomerProfileResponse(
+        customer=customer,
+        metrics=metrics,
+        quotations=quotations,
+        invoices=invoices,
+        payments=[
+            schemas.CustomerPaymentSummary(
+                id=payment.id,
+                invoice_id=payment.invoice_id,
+                payment_date=payment.payment_date,
+                mode=payment.mode,
+                reference_number=payment.reference_number,
+                amount=payment.amount,
+                received_by=payment.received_by,
+                notes=payment.notes,
+                created_at=payment.created_at,
+                invoice_number=payment.invoice.number,
+            )
+            for payment in payments
+        ],
+        followups=followups,
+        timeline=timeline[:20],
+    )
 
 
 @app.get("/api/dashboard", response_model=schemas.DashboardResponse)
@@ -118,13 +199,40 @@ def dashboard(db: Session = Depends(get_db)) -> schemas.DashboardResponse:
 
 @app.get("/api/customers", response_model=list[schemas.CustomerRead])
 def list_customers(search: str = "", status: str = "", db: Session = Depends(get_db)):
-    stmt = select(models.Customer).order_by(models.Customer.id)
+    stmt = (
+        select(models.Customer)
+        .options(selectinload(models.Customer.quotations), selectinload(models.Customer.invoices).selectinload(models.Invoice.payments))
+        .order_by(models.Customer.id)
+    )
     if search:
         q = f"%{search}%"
         stmt = stmt.where(or_(models.Customer.name.ilike(q), models.Customer.phone.ilike(q), models.Customer.email.ilike(q)))
     if status:
         stmt = stmt.where(models.Customer.status == status)
-    return db.scalars(stmt).all()
+    customers = db.scalars(stmt).unique().all()
+    for customer in customers:
+        sync_customer_financials(customer)
+    db.commit()
+    return customers
+
+
+@app.get("/api/customers/{customer_id}/profile", response_model=schemas.CustomerProfileResponse)
+def customer_profile(customer_id: int, db: Session = Depends(get_db)):
+    stmt = (
+        select(models.Customer)
+        .where(models.Customer.id == customer_id)
+        .options(
+            selectinload(models.Customer.quotations),
+            selectinload(models.Customer.invoices).selectinload(models.Invoice.payments),
+            selectinload(models.Customer.followups),
+        )
+    )
+    customer = db.scalars(stmt).unique().one_or_none()
+    if not customer:
+        raise HTTPException(404, "Customer not found")
+    profile = build_customer_profile(customer)
+    db.commit()
+    return profile
 
 
 @app.post("/api/customers", response_model=schemas.CustomerRead, status_code=201)

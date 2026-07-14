@@ -5,6 +5,7 @@ export type Customer = {
   phone: string;
   email: string;
   address: string;
+  gst_number: string;
   project_site: string;
   status: string;
   last_interaction?: string | null;
@@ -12,6 +13,7 @@ export type Customer = {
   quote_value: number | string;
   pending_payment: number | string;
   assigned_to: string;
+  notes: string;
   created_at: string;
 };
 
@@ -149,4 +151,48 @@ export type PricingRule = {
   discount_upto_100: number | string;
   discount_100_300: number | string;
   discount_above_300: number | string;
+};
+
+export type CustomerTimelineItem = {
+  type: string;
+  title: string;
+  detail: string;
+  at: string;
+};
+
+export type CustomerProfile = {
+  customer: Customer;
+  metrics: {
+    quotation_count: number;
+    quotation_value: number;
+    invoice_count: number;
+    invoice_value: number;
+    paid_amount: number;
+    pending_amount: number;
+    followup_count: number;
+    open_followups: number;
+  };
+  quotations: Array<{
+    id: number;
+    number: string;
+    quotation_date: string;
+    status: string;
+    grand_total: number | string;
+    balance: number | string;
+    created_at: string;
+  }>;
+  invoices: Array<{
+    id: number;
+    number: string;
+    invoice_date: string;
+    due_date: string;
+    status: string;
+    grand_total: number | string;
+    paid_amount: number | string;
+    pending_balance: number | string;
+    created_at: string;
+  }>;
+  payments: Array<Payment & { invoice_number: string }>;
+  followups: Followup[];
+  timeline: CustomerTimelineItem[];
 };
