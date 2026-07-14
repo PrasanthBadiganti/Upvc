@@ -206,6 +206,45 @@ def test_quotation_edit_duplicate_revise_and_lock():
         assert "Revision of" in revision.json()["notes"]
 
 
+def test_quotation_pdf_download():
+    with TestClient(app) as client:
+        customers = client.get("/api/customers").json()
+        payload = {
+            "customer_id": customers[0]["id"],
+            "quotation_date": "2026-07-14",
+            "validity_days": 30,
+            "sales_person": "Arun Verma",
+            "site_location": "PDF Site",
+            "address": "PDF Address",
+            "status": "Sent",
+            "transport": "1000",
+            "discount": "250",
+            "notes": "PDF quotation test",
+            "items": [{
+                "category": "Casement Window",
+                "style": "Openable",
+                "width_mm": "900",
+                "height_mm": "1200",
+                "sft": "11.63",
+                "quantity": 2,
+                "total_sft": "23.26",
+                "rate_per_sft": "950",
+                "amount": "22097",
+                "location": "Bedroom",
+                "profile": "60 mm profile",
+                "glass": "5 mm clear",
+                "hardware": "Standard hardware"
+            }]
+        }
+        quote = client.post("/api/quotations", json=payload)
+        assert quote.status_code == 201, quote.text
+        pdf = client.get(f"/api/quotations/{quote.json()['id']}/pdf")
+        assert pdf.status_code == 200, pdf.text
+        assert pdf.headers["content-type"] == "application/pdf"
+        assert quote.json()["number"] in pdf.headers["content-disposition"]
+        assert pdf.content.startswith(b"%PDF")
+
+
 def test_prebuilt_frontend_is_served():
     with TestClient(app) as client:
         root = client.get("/")

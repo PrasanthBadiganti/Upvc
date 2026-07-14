@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from . import models, schemas
 from .database import Base, SessionLocal, engine, get_db
-from .pdf import build_invoice_pdf
+from .pdf import build_invoice_pdf, build_quotation_pdf
 from .seed import seed_database
 from .services import convert_quotation_to_invoice, create_quotation, duplicate_quotation, get_invoice, get_quotation, money, next_code, record_payment, update_quotation
 
@@ -439,6 +439,16 @@ def convert_quotation(quotation_id: int, db: Session = Depends(get_db)):
         return convert_quotation_to_invoice(db, quotation_id)
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/quotations/{quotation_id}/pdf")
+def quotation_pdf(quotation_id: int, db: Session = Depends(get_db)):
+    try:
+        quotation = get_quotation(db, quotation_id)
+    except Exception as exc:
+        raise HTTPException(404, "Quotation not found") from exc
+    data = build_quotation_pdf(quotation)
+    return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{quotation.number}.pdf"'})
 
 
 @app.get("/api/invoices", response_model=list[schemas.InvoiceRead])

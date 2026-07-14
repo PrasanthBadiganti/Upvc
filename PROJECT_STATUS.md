@@ -219,6 +219,7 @@ Supported:
 - Update quotation status
 - Convert quotation to invoice
 - Select catalog/price-master items while building quotations
+- Download backend-generated quotation PDF
 - Browser print preview
 
 Statuses:
@@ -229,7 +230,7 @@ Statuses:
 - Converted
 - Rejected
 
-Dedicated backend quotation PDF is not implemented yet.
+Dedicated backend quotation PDF is implemented.
 
 ### Invoices
 
@@ -374,6 +375,7 @@ Quotations:
 - `POST /api/quotations/{quotation_id}/duplicate`
 - `POST /api/quotations/{quotation_id}/revise`
 - `POST /api/quotations/{quotation_id}/convert`
+- `GET /api/quotations/{quotation_id}/pdf`
 
 Invoices and payments:
 
@@ -454,6 +456,7 @@ Last verified on 2026-07-14:
 - Phase 2 Customers completed: customer GST/notes, profile endpoint, real aggregates, timeline, side-panel replacement, and backend tests.
 - Phase 3 Catalog/Price Master completed: expanded material fields, safe SQLite migration, richer catalog UI, catalog summary endpoint, catalog-linked quotation items, and backend tests.
 - Phase 4 Quotation Builder completed: edit route, locked accepted/converted quotations, duplicate/revise actions, shared backend recalculation path, and backend tests.
+- Phase 5 Quotation PDF completed: backend ReportLab quotation PDF endpoint, frontend download action, and backend tests.
 
 Known environment notes:
 
@@ -470,7 +473,6 @@ Phase 1 remaining cleanup:
 
 Next business phases:
 
-- Phase 5: backend quotation PDF.
 - Phase 6+: invoice/payment/report polishing.
 
 ## Development Rules
