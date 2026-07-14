@@ -337,6 +337,7 @@ Supported:
 
 - Persist pricing/tax defaults through pricing rules API
 - Persist business profile: company name, tagline, contact details, address, GSTIN, logo text
+- Upload, preview, remove, and persist image logo for document branding
 - Persist bank/payment details: bank, account name, account number, IFSC, UPI
 - Persist document terms for quotations, invoices, and receipts
 - Use saved business settings in quotation, invoice, and payment receipt PDFs
@@ -344,7 +345,7 @@ Supported:
 
 Not fully supported:
 
-- Image logo upload
+- Full logo cropping/editor workflow
 
 ## API Endpoint Inventory
 
@@ -376,6 +377,8 @@ Catalog and pricing:
 - `PUT /api/pricing-rules`
 - `GET /api/business-settings`
 - `PUT /api/business-settings`
+- `POST /api/business-settings/logo`
+- `DELETE /api/business-settings/logo`
 
 Quotations:
 
@@ -474,6 +477,7 @@ Last verified on 2026-07-14:
 - Phase 6 Payment Receipt completed: backend receipt PDF endpoint, payment detail API, cancelled-invoice payment guard, receipt buttons, and backend tests.
 - Phase 6 Reports Polish completed: aging buckets, monthly financial trend, conversion summary, top pending collections, salesperson performance, frontend report tables/charts, and backend tests.
 - Phase 7 Settings and Document Templates completed: persistent business profile, bank details, document terms, quotation sharing action, and modern branded quotation/invoice/receipt PDFs.
+- Phase 7 Logo Branding completed: image logo upload, preview, removal, static serving, PDF image rendering with text fallback, and backend tests.
 
 Known environment notes:
 

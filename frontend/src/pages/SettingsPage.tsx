@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
+import { Upload, Trash2 } from 'lucide-react';
 import api from '../api';
 import { Button, Card, Field, Input, Loading, PageHeader, Select } from '../components/UI';
 import { BusinessSettings, PricingRule } from '../types';
@@ -7,6 +8,7 @@ export default function SettingsPage() {
   const [rules, setRules] = useState<PricingRule | null>(null);
   const [business, setBusiness] = useState<BusinessSettings | null>(null);
   const [saved, setSaved] = useState('');
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     Promise.all([api.get('/pricing-rules'), api.get('/business-settings')]).then(([ruleRes, businessRes]) => {
@@ -30,6 +32,24 @@ export default function SettingsPage() {
     setRules(data);
     flash('Pricing defaults saved');
   };
+  const uploadLogo = async (file?: File) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const { data } = await api.post('/business-settings/logo', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setBusiness(data);
+      flash('Logo uploaded');
+    } finally {
+      setUploading(false);
+    }
+  };
+  const removeLogo = async () => {
+    const { data } = await api.delete('/business-settings/logo');
+    setBusiness(data);
+    flash('Logo removed');
+  };
 
   return <>
     <PageHeader title="Settings" subtitle="Business profile, bank details, document terms, taxation and pricing defaults" />
@@ -39,6 +59,13 @@ export default function SettingsPage() {
         <h3>Business Profile</h3>
         <form onSubmit={saveBusiness}>
           <div className="form-grid">
+            <div className="logo-uploader">
+              <div className="logo-preview">{business.logo_path ? <img src={`${business.logo_path}?v=${encodeURIComponent(business.updated_at)}`} alt="Business logo" /> : <span>{business.logo_text || 'CF'}</span>}</div>
+              <div className="logo-actions">
+                <label className="button secondary"><Upload size={15}/> Upload Logo<input type="file" accept="image/png,image/jpeg,image/webp" hidden disabled={uploading} onChange={e => uploadLogo(e.target.files?.[0])} /></label>
+                <Button type="button" tone="secondary" onClick={removeLogo} disabled={!business.logo_path || uploading}><Trash2 size={15}/> Remove</Button>
+              </div>
+            </div>
             <Field label="Business Name"><Input value={business.company_name} onChange={e => setBusiness({ ...business, company_name: e.target.value })} /></Field>
             <Field label="Tagline"><Input value={business.tagline} onChange={e => setBusiness({ ...business, tagline: e.target.value })} /></Field>
             <Field label="GST Number"><Input value={business.gst_number} onChange={e => setBusiness({ ...business, gst_number: e.target.value })} /></Field>

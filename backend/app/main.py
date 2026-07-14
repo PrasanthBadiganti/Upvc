@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import sys
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from . import models, schemas
-from .database import Base, SessionLocal, engine, get_db
+from .database import Base, DEFAULT_DB_PATH, SessionLocal, engine, get_db
 from .pdf import build_invoice_pdf, build_payment_receipt_pdf, build_quotation_pdf
 from .seed import seed_database
 from .services import convert_quotation_to_invoice, create_quotation, duplicate_quotation, get_invoice, get_payment, get_quotation, money, next_code, record_payment, update_quotation
@@ -62,6 +62,9 @@ def ensure_schema() -> None:
         "quotation_items": {
             "catalog_item_id": "INTEGER",
         },
+        "business_settings": {
+            "logo_path": "VARCHAR(260) DEFAULT ''",
+        },
     }
     with engine.begin() as connection:
         for table, columns in migrations.items():
@@ -79,6 +82,18 @@ def get_or_create_business_settings(db: Session) -> models.BusinessSettings:
         db.commit()
         db.refresh(settings)
     return settings
+
+
+UPLOAD_DIR = DEFAULT_DB_PATH.parent / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _logo_public_path(filename: str) -> str:
+    return f"/uploads/{filename}"
+
+
+def _logo_file_path(public_path: str) -> Path:
+    return UPLOAD_DIR / Path(public_path).name
 
 
 @app.get("/api/health")
@@ -399,6 +414,49 @@ def update_business_settings(payload: schemas.BusinessSettingsPayload, db: Sessi
     return settings
 
 
+@app.post("/api/business-settings/logo", response_model=schemas.BusinessSettingsRead)
+async def upload_business_logo(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    allowed = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/webp": ".webp",
+    }
+    extension = allowed.get(file.content_type or "")
+    if not extension:
+        raise HTTPException(400, "Logo must be a PNG, JPG, or WEBP image")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "Logo file is empty")
+    if len(data) > 2 * 1024 * 1024:
+        raise HTTPException(400, "Logo file must be 2 MB or smaller")
+
+    settings = get_or_create_business_settings(db)
+    if settings.logo_path:
+        old_path = _logo_file_path(settings.logo_path)
+        if old_path.exists():
+            old_path.unlink()
+    filename = f"business-logo{extension}"
+    target = UPLOAD_DIR / filename
+    target.write_bytes(data)
+    settings.logo_path = _logo_public_path(filename)
+    db.commit()
+    db.refresh(settings)
+    return settings
+
+
+@app.delete("/api/business-settings/logo", response_model=schemas.BusinessSettingsRead)
+def remove_business_logo(db: Session = Depends(get_db)):
+    settings = get_or_create_business_settings(db)
+    if settings.logo_path:
+        logo_file = _logo_file_path(settings.logo_path)
+        if logo_file.exists():
+            logo_file.unlink()
+    settings.logo_path = ""
+    db.commit()
+    db.refresh(settings)
+    return settings
+
+
 @app.get("/api/quotations", response_model=list[schemas.QuotationRead])
 def list_quotations(db: Session = Depends(get_db)):
     stmt = select(models.Quotation).options(selectinload(models.Quotation.items), joinedload(models.Quotation.customer)).order_by(models.Quotation.id.desc())
@@ -686,6 +744,9 @@ ASSETS_DIR = FRONTEND_DIST / "assets"
 
 if ASSETS_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="frontend-assets")
+
+if UPLOAD_DIR.exists():
+    app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 
 @app.get("/", include_in_schema=False)

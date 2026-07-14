@@ -91,6 +91,7 @@ class BusinessSettings(Base):
     address: Mapped[str] = mapped_column(Text, default="Vizianagaram, Andhra Pradesh")
     gst_number: Mapped[str] = mapped_column(String(40), default="37ASLPH7160H1ZI")
     logo_text: Mapped[str] = mapped_column(String(12), default="CF")
+    logo_path: Mapped[str] = mapped_column(String(260), default="")
     bank_name: Mapped[str] = mapped_column(String(160), default="Bank of Baroda")
     account_name: Mapped[str] = mapped_column(String(180), default="Crystal Frames Studio")
     account_number: Mapped[str] = mapped_column(String(80), default="000000000000")

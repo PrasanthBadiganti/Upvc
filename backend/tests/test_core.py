@@ -1,5 +1,6 @@
 import os
 from decimal import Decimal
+from io import BytesIO
 from pathlib import Path
 
 DB_FILE = Path(__file__).resolve().parents[1] / "test_upvc.db"
@@ -8,6 +9,7 @@ if DB_FILE.exists():
 os.environ["DATABASE_URL"] = f"sqlite:///{DB_FILE}"
 
 from fastapi.testclient import TestClient
+from PIL import Image
 from app import models
 from app.database import SessionLocal
 from app.main import app
@@ -378,6 +380,33 @@ def test_business_settings_drive_document_generation():
         receipt = client.get(f"/api/payments/{payment.json()['payments'][0]['id']}/receipt")
         assert receipt.status_code == 200, receipt.text
         assert receipt.content.startswith(b"%PDF")
+
+
+def test_business_logo_upload_preview_pdf_and_remove():
+    with TestClient(app) as client:
+        image_bytes = BytesIO()
+        Image.new("RGB", (80, 40), color=(37, 99, 235)).save(image_bytes, format="PNG")
+        upload = client.post(
+            "/api/business-settings/logo",
+            files={"file": ("logo.png", image_bytes.getvalue(), "image/png")},
+        )
+        assert upload.status_code == 200, upload.text
+        logo_path = upload.json()["logo_path"]
+        assert logo_path.startswith("/uploads/")
+        preview = client.get(logo_path)
+        assert preview.status_code == 200
+        assert preview.headers["content-type"] == "image/png"
+
+        quotes = client.get("/api/quotations").json()
+        assert quotes
+        pdf = client.get(f"/api/quotations/{quotes[0]['id']}/pdf")
+        assert pdf.status_code == 200, pdf.text
+        assert pdf.content.startswith(b"%PDF")
+
+        removed = client.delete("/api/business-settings/logo")
+        assert removed.status_code == 200, removed.text
+        assert removed.json()["logo_path"] == ""
+        assert client.get(logo_path).status_code == 404
 
 
 def test_reports_include_collection_and_conversion_breakdowns():

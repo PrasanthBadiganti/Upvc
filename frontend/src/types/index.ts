@@ -173,6 +173,7 @@ export type BusinessSettings = {
   address: string;
   gst_number: string;
   logo_text: string;
+  logo_path: string;
   bank_name: string;
   account_name: string;
   account_number: string;

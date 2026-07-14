@@ -93,6 +93,7 @@ class BusinessSettingsPayload(BaseModel):
     address: str = "Vizianagaram, Andhra Pradesh"
     gst_number: str = "37ASLPH7160H1ZI"
     logo_text: str = "CF"
+    logo_path: str = ""
     bank_name: str = "Bank of Baroda"
     account_name: str = "Crystal Frames Studio"
     account_number: str = "000000000000"

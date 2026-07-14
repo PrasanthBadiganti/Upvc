@@ -10,8 +10,9 @@ from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from .database import DEFAULT_DB_PATH
 from .models import BusinessSettings, Invoice, Payment, Quotation
 
 NAVY = colors.HexColor("#12314f")
@@ -53,14 +54,37 @@ def _doc(buffer: BytesIO) -> SimpleDocTemplate:
     return SimpleDocTemplate(buffer, pagesize=A4, rightMargin=12 * mm, leftMargin=12 * mm, topMargin=10 * mm, bottomMargin=11 * mm)
 
 
-def _header(document_title: str, number: str, settings: BusinessSettings | None, styles: dict[str, ParagraphStyle]) -> Table:
-    business = _business(settings)
-    logo = Table([[Paragraph(_text((business.logo_text or "CF")[:4].upper()), styles["Logo"])]], colWidths=[22 * mm], rowHeights=[22 * mm])
+def _logo_path(settings: BusinessSettings) -> str | None:
+    if not settings.logo_path:
+        return None
+    path = DEFAULT_DB_PATH.parent / "uploads" / settings.logo_path.rsplit("/", 1)[-1]
+    return str(path) if path.exists() else None
+
+
+def _logo_flowable(settings: BusinessSettings, styles: dict[str, ParagraphStyle]):
+    logo_file = _logo_path(settings)
+    if logo_file:
+        logo = Image(logo_file, width=22 * mm, height=22 * mm, kind="proportional")
+        frame = Table([[logo]], colWidths=[22 * mm], rowHeights=[22 * mm])
+        frame.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("BOX", (0, 0), (-1, -1), 0.6, BORDER),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+        ]))
+        return frame
+    logo = Table([[Paragraph(_text((settings.logo_text or "CF")[:4].upper()), styles["Logo"])]], colWidths=[22 * mm], rowHeights=[22 * mm])
     logo.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), BLUE),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("BOX", (0, 0), (-1, -1), 0, BLUE),
     ]))
+    return logo
+
+
+def _header(document_title: str, number: str, settings: BusinessSettings | None, styles: dict[str, ParagraphStyle]) -> Table:
+    business = _business(settings)
+    logo = _logo_flowable(business, styles)
     company = [
         Paragraph(_text(business.company_name), styles["Company"]),
         Paragraph(_text(business.tagline), styles["Small"]),
