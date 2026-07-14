@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
+import os
 from pathlib import Path
+import sys
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,13 +59,22 @@ def dashboard(db: Session = Depends(get_db)) -> schemas.DashboardResponse:
         "pending_payments": float(pending),
         "revenue_received": float(received),
     }
+    month_keys = []
+    current = date.today().replace(day=1)
+    for offset in range(11, -1, -1):
+        year = current.year
+        month = current.month - offset
+        while month <= 0:
+            month += 12
+            year -= 1
+        month_keys.append((year, month))
     monthly = [
-        {"month": "Jun '24", "quotations": 35, "invoices": 28}, {"month": "Jul '24", "quotations": 42, "invoices": 33},
-        {"month": "Aug '24", "quotations": 50, "invoices": 37}, {"month": "Sep '24", "quotations": 45, "invoices": 32},
-        {"month": "Oct '24", "quotations": 60, "invoices": 45}, {"month": "Nov '24", "quotations": 55, "invoices": 42},
-        {"month": "Dec '24", "quotations": 68, "invoices": 52}, {"month": "Jan '25", "quotations": 62, "invoices": 46},
-        {"month": "Feb '25", "quotations": 58, "invoices": 44}, {"month": "Mar '25", "quotations": 70, "invoices": 55},
-        {"month": "Apr '25", "quotations": 65, "invoices": 48}, {"month": "May '25", "quotations": 75, "invoices": 60},
+        {
+            "month": date(year, month, 1).strftime("%b '%y"),
+            "quotations": sum(1 for q in quotations if q.quotation_date.year == year and q.quotation_date.month == month),
+            "invoices": sum(1 for i in invoices if i.invoice_date.year == year and i.invoice_date.month == month),
+        }
+        for year, month in month_keys
     ]
     status_counts: dict[str, int] = {}
     for c in customers:
@@ -315,10 +326,18 @@ def reports(db: Session = Depends(get_db)):
     by_status = db.execute(select(models.Customer.status, func.count(models.Customer.id)).group_by(models.Customer.status)).all()
     return {"total_quote_value": float(total_quotes), "total_invoice_value": float(total_invoices), "received": float(received), "pending": float(pending), "customer_status": [{"name": s, "value": c} for s, c in by_status]}
 
+def _frontend_dist() -> Path:
+    configured = os.getenv("UPVC_FRONTEND_DIST")
+    if configured:
+        return Path(configured)
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS")) / "frontend" / "dist"
+    return Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+
 # Serve the prebuilt frontend from the same local FastAPI process.
 # This removes Node/npm from the normal installation and startup path.
-PACKAGE_ROOT = Path(__file__).resolve().parents[2]
-FRONTEND_DIST = PACKAGE_ROOT / "frontend" / "dist"
+FRONTEND_DIST = _frontend_dist()
 ASSETS_DIR = FRONTEND_DIST / "assets"
 
 if ASSETS_DIR.exists():
@@ -343,4 +362,3 @@ def frontend_spa(full_path: str):
     if not index_file.exists():
         raise HTTPException(503, "Prebuilt frontend files are missing")
     return FileResponse(index_file)
-

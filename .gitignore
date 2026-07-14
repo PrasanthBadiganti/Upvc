@@ -1,9 +1,49 @@
+# Python
 __pycache__/
-*.pyc
-*.db
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
 .venv/
-node_modules/
-dist/
-.vite/
+venv/
+env/
+
+# Local databases and runtime data
+*.db
+*.sqlite
+*.sqlite3
+.desktop-data-test/
+
+# Environment and local machine files
 .env
+.env.*
+!.env.example
 .DS_Store
+Thumbs.db
+*.log
+*.pid
+
+# Node / frontend development
+node_modules/
+.vite/
+*.tsbuildinfo
+frontend/dist-backups/
+
+# Keep frontend/dist tracked: FastAPI uses it for no-Node client runtime.
+
+# Desktop / installer build outputs
+UPVC Pro.spec
+/dist/
+build/
+build-desktop-cache/
+desktop-dist/
+installer/Output/
+
+# Tooling caches
+.cache/
+.parcel-cache/

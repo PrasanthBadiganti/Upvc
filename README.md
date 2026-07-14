@@ -12,6 +12,36 @@ This package contains the FastAPI backend, SQLite database, React source code, a
 
 Requirements: Python 3.11 or newer. While installing Python, select **Add Python to PATH**.
 
+## Windows desktop app
+
+For client machines, the application can also run as a desktop app using pywebview. The desktop app starts the same FastAPI backend internally and opens the existing React UI in an application window.
+
+Development run:
+
+```bat
+start-desktop.bat
+```
+
+Build an installable desktop package:
+
+```bat
+build-desktop.bat
+```
+
+Build output:
+
+- Desktop app folder: `desktop-dist\UPVC Pro\`
+- Main executable: `desktop-dist\UPVC Pro\UPVC Pro.exe`
+- Installer output, when Inno Setup is installed: `installer\Output\UPVC-Pro-Setup.exe`
+
+The desktop build stores the live SQLite database under the logged-in Windows user's local app data folder:
+
+```text
+%LOCALAPPDATA%\UPVC Pro\upvc_pro.db
+```
+
+Back up this file before reinstalling Windows or moving the client to another machine.
+
 ## WSL, Linux, or macOS
 
 ```bash
@@ -30,21 +60,28 @@ Open `http://127.0.0.1:8000`.
 
 ## Database
 
-The local SQLite database is created automatically as `backend/upvc_pro.db`. Back up this file to preserve client data. Delete it only when intentionally resetting all data to the included sample dataset.
+The browser/local version creates SQLite automatically as `backend/upvc_pro.db`. The desktop EXE version stores it under `%LOCALAPPDATA%\UPVC Pro\upvc_pro.db`. Back up the active database file to preserve client data. Delete it only when intentionally resetting all data to the included sample dataset.
 
 ## Frontend source
 
 Editable React/TypeScript source is under `frontend/src`. The already compiled browser files used during normal startup are under `frontend/dist`; therefore no frontend dependency installation is needed.
 
-To rebuild the frontend only when changing its source, install Node.js 20+ and run:
+For active frontend development, install Node.js 22 LTS or newer and run:
 
-```bash
-cd frontend
-npm ci
-npm run build
+```bat
+setup-frontend.bat
+start-frontend-dev.bat
 ```
 
-The application will automatically serve the updated `frontend/dist` on its next restart.
+This starts a separate Vite development server at `http://127.0.0.1:5173`. It proxies API calls to the FastAPI backend, so keep the backend running at `http://127.0.0.1:8001` while developing.
+
+To create a fresh production frontend build:
+
+```bat
+build-frontend.bat
+```
+
+The build command backs up the existing `frontend/dist` into `frontend/dist-backups` before generating a new `frontend/dist`. The application will automatically serve the updated `frontend/dist` on its next FastAPI restart.
 
 ## Automated checks
 

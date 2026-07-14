@@ -4,25 +4,28 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "dev": "vite --host 127.0.0.1",
+    "dev:lan": "vite --host 0.0.0.0",
+    "backup:dist": "node scripts/backup-dist.mjs",
+    "build": "npm run backup:dist && tsc -b && vite build",
+    "build:fresh": "npm run build",
+    "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "axios": "latest",
-    "date-fns": "latest",
-    "lucide-react": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "react-router-dom": "latest",
-    "recharts": "latest"
+    "@vitejs/plugin-react": "4.3.4",
+    "axios": "1.7.9",
+    "date-fns": "4.1.0",
+    "lucide-react": "0.468.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-router-dom": "6.28.1",
+    "recharts": "2.15.0"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "typescript": "latest",
-    "vite": "latest"
+    "@types/node": "22.10.2",
+    "@types/react": "18.3.17",
+    "@types/react-dom": "18.3.5",
+    "typescript": "5.7.2",
+    "vite": "6.0.5"
   }
 }
