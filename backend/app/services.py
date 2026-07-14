@@ -53,14 +53,19 @@ def create_quotation(db: Session, payload: QuotationCreate) -> models.Quotation:
 
     subtotal = Decimal("0")
     for item in payload.items:
+        catalog_item = db.get(models.CatalogItem, item.catalog_item_id) if item.catalog_item_id else None
+        rate_per_sft = money(item.rate_per_sft if item.rate_per_sft > 0 else (catalog_item.rate_per_sft if catalog_item else 0))
+        min_billable_sft = Decimal(catalog_item.min_billable_sft) if catalog_item else Decimal("0")
         sft = money(item.sft)
         if sft <= 0 and item.width_mm > 0 and item.height_mm > 0:
             sft = calculate_sft(item.width_mm, item.height_mm)
-        total_sft = money(item.total_sft if item.total_sft > 0 else sft * item.quantity)
-        amount = money(item.amount if item.amount > 0 else total_sft * item.rate_per_sft)
+        billable_sft = max(sft, min_billable_sft)
+        total_sft = money(item.total_sft if item.total_sft > 0 else billable_sft * item.quantity)
+        amount = money(item.amount if item.amount > 0 else total_sft * rate_per_sft)
         subtotal += amount
         quote.items.append(
             models.QuotationItem(
+                catalog_item_id=item.catalog_item_id,
                 category=item.category,
                 style=item.style,
                 width_mm=money(item.width_mm),
@@ -68,17 +73,17 @@ def create_quotation(db: Session, payload: QuotationCreate) -> models.Quotation:
                 sft=sft,
                 quantity=item.quantity,
                 total_sft=total_sft,
-                rate_per_sft=money(item.rate_per_sft),
+                rate_per_sft=rate_per_sft,
                 amount=amount,
                 location=item.location,
-                profile=item.profile,
-                color=item.color,
-                track=item.track,
-                glass=item.glass,
-                glass_color=item.glass_color,
-                hardware=item.hardware,
-                reinforcement=item.reinforcement,
-                mesh=item.mesh,
+                profile=item.profile or (catalog_item.profile if catalog_item else ""),
+                color=item.color or (catalog_item.color if catalog_item else ""),
+                track=item.track or (catalog_item.track if catalog_item else ""),
+                glass=item.glass or (catalog_item.glass if catalog_item else ""),
+                glass_color=item.glass_color or (catalog_item.glass_color if catalog_item else ""),
+                hardware=item.hardware or (catalog_item.hardware if catalog_item else ""),
+                reinforcement=item.reinforcement or (catalog_item.reinforcement if catalog_item else ""),
+                mesh=item.mesh or (catalog_item.mesh if catalog_item else ""),
             )
         )
 

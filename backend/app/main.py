@@ -42,15 +42,33 @@ def startup() -> None:
 def ensure_schema() -> None:
     if not engine.url.drivername.startswith("sqlite"):
         return
-    customer_columns = {
-        "gst_number": "VARCHAR(40) DEFAULT ''",
-        "notes": "TEXT DEFAULT ''",
+    migrations = {
+        "customers": {
+            "gst_number": "VARCHAR(40) DEFAULT ''",
+            "notes": "TEXT DEFAULT ''",
+        },
+        "catalog_items": {
+            "profile_brand": "VARCHAR(120) DEFAULT ''",
+            "profile_series": "VARCHAR(120) DEFAULT ''",
+            "glass_type": "VARCHAR(120) DEFAULT ''",
+            "glass_thickness": "VARCHAR(60) DEFAULT ''",
+            "glass_color": "VARCHAR(80) DEFAULT ''",
+            "reinforcement": "VARCHAR(120) DEFAULT ''",
+            "mesh": "VARCHAR(120) DEFAULT ''",
+            "gst_percent": "NUMERIC(6, 2) DEFAULT 18",
+            "installation_rate": "NUMERIC(12, 2) DEFAULT 0",
+            "rounding_rule": "VARCHAR(50) DEFAULT 'Round up'",
+        },
+        "quotation_items": {
+            "catalog_item_id": "INTEGER",
+        },
     }
     with engine.begin() as connection:
-        existing = {row[1] for row in connection.execute(text("PRAGMA table_info(customers)"))}
-        for column, definition in customer_columns.items():
-            if column not in existing:
-                connection.execute(text(f"ALTER TABLE customers ADD COLUMN {column} {definition}"))
+        for table, columns in migrations.items():
+            existing = {row[1] for row in connection.execute(text(f"PRAGMA table_info({table})"))}
+            for column, definition in columns.items():
+                if column not in existing:
+                    connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))
 
 
 @app.get("/api/health")
@@ -268,16 +286,40 @@ def delete_customer(customer_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/catalog", response_model=list[schemas.CatalogItemRead])
-def list_catalog(search: str = "", category: str = "", status: str = "", db: Session = Depends(get_db)):
+def list_catalog(search: str = "", category: str = "", product_type: str = "", status: str = "", db: Session = Depends(get_db)):
     stmt = select(models.CatalogItem).order_by(models.CatalogItem.id)
     if search:
         q = f"%{search}%"
-        stmt = stmt.where(or_(models.CatalogItem.name.ilike(q), models.CatalogItem.profile.ilike(q), models.CatalogItem.glass.ilike(q)))
+        stmt = stmt.where(or_(
+            models.CatalogItem.name.ilike(q),
+            models.CatalogItem.product_type.ilike(q),
+            models.CatalogItem.profile.ilike(q),
+            models.CatalogItem.profile_brand.ilike(q),
+            models.CatalogItem.profile_series.ilike(q),
+            models.CatalogItem.glass.ilike(q),
+            models.CatalogItem.glass_type.ilike(q),
+            models.CatalogItem.hardware.ilike(q),
+        ))
     if category:
         stmt = stmt.where(models.CatalogItem.category == category)
+    if product_type:
+        stmt = stmt.where(models.CatalogItem.product_type == product_type)
     if status:
         stmt = stmt.where(models.CatalogItem.status == status)
     return db.scalars(stmt).all()
+
+
+@app.get("/api/catalog/summary")
+def catalog_summary(db: Session = Depends(get_db)):
+    items = db.scalars(select(models.CatalogItem)).all()
+    return {
+        "categories": sorted({item.category for item in items if item.category}),
+        "product_types": sorted({item.product_type for item in items if item.product_type}),
+        "profile_brands": sorted({item.profile_brand or item.profile for item in items if item.profile_brand or item.profile}),
+        "glass_types": sorted({item.glass_type or item.glass for item in items if item.glass_type or item.glass}),
+        "active_count": sum(1 for item in items if item.status == "Active"),
+        "inactive_count": sum(1 for item in items if item.status != "Active"),
+    }
 
 
 @app.post("/api/catalog", response_model=schemas.CatalogItemRead, status_code=201)

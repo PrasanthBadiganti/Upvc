@@ -184,7 +184,11 @@ Supported:
 - Edit catalog item
 - Delete catalog item via API
 - Maintain profile, track, glass, hardware, color, min billable SFT, rate/SFT
+- Maintain profile brand, profile series, glass type, glass thickness, glass color
+- Maintain reinforcement, mesh, product GST percent, installation rate, and product rounding rule
 - Maintain pricing rules
+- Catalog summary endpoint for categories, product types, profile brands, and glass types
+- Quotation item can link to a catalog item and inherit rate/material/minimum billable SFT
 
 Pricing rules currently include:
 
@@ -348,6 +352,7 @@ Customers:
 Catalog and pricing:
 
 - `GET /api/catalog`
+- `GET /api/catalog/summary`
 - `POST /api/catalog`
 - `PUT /api/catalog/{item_id}`
 - `DELETE /api/catalog/{item_id}`
@@ -437,6 +442,7 @@ Last verified on 2026-07-14:
 - Source text was normalized to avoid Windows/PDF mojibake for rupee symbols, dashes, bullets, and footer symbols.
 - `start-local.bat` now falls back from port `8000` to `8001` when `8000` is busy.
 - Phase 2 Customers completed: customer GST/notes, profile endpoint, real aggregates, timeline, side-panel replacement, and backend tests.
+- Phase 3 Catalog/Price Master completed: expanded material fields, safe SQLite migration, richer catalog UI, catalog summary endpoint, catalog-linked quotation items, and backend tests.
 
 Known environment notes:
 
@@ -453,7 +459,7 @@ Phase 1 remaining cleanup:
 
 Next business phases:
 
-- Phase 3: richer inventory/material/price-master fields and product-specific SFT rules.
+- Phase 4: stronger quotation builder workflows, quote duplication/revision, accepted quote locking, and smoother preview.
 - Phase 4: stronger quotation builder with catalog item picking, duplication, revisions, accepted quote locking.
 - Phase 5: backend quotation PDF.
 - Phase 6+: invoice/payment/report polishing.

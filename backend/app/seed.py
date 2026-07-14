@@ -14,6 +14,7 @@ from .services import convert_quotation_to_invoice, create_quotation, record_pay
 def seed_database(db: Session) -> None:
     if db.scalar(select(models.Customer.id).limit(1)) is not None:
         backfill_customer_details(db)
+        backfill_catalog_details(db)
         return
 
     now = datetime.now().replace(second=0, microsecond=0)
@@ -30,12 +31,12 @@ def seed_database(db: Session) -> None:
     db.add_all(customers)
 
     catalog = [
-        models.CatalogItem(category="Windows", product_type="Sliding", name="Sliding Window", subtitle="2 Track  -  3 Panel", profile="VEKA 60 mm", track="2 Track", glass="5 MM Saint Gobain", hardware="McCoy Hardware", color="White", min_billable_sft=10, rate_per_sft=680),
-        models.CatalogItem(category="Windows", product_type="Casement", name="Casement Window", subtitle="Side Hung  -  Outward", profile="VEKA 60 mm", track="--", glass="5 MM Saint Gobain", hardware="McCoy Hardware", color="White", min_billable_sft=8, rate_per_sft=720),
-        models.CatalogItem(category="Doors", product_type="French", name="French Door", subtitle="2 Panel  -  Outward", profile="VEKA 70 mm", track="--", glass="6 MM Saint Gobain", hardware="Dorma Handle Set", color="White", min_billable_sft=15, rate_per_sft=1150),
-        models.CatalogItem(category="Glass", product_type="Fixed", name="Fixed Glass", subtitle="Single Pane", profile="VEKA 60 mm", track="--", glass="5 MM Saint Gobain", hardware="Structural Silicone", color="Clear", min_billable_sft=6, rate_per_sft=450),
-        models.CatalogItem(category="Mesh", product_type="Openable", name="Mosquito Mesh", subtitle="Openable", profile="--", track="1 MM Galvanized", glass="--", hardware="S S Black Mesh", color="Black", min_billable_sft=5, rate_per_sft=220),
-        models.CatalogItem(category="Glass", product_type="Partition", name="Toughened Glass Partition", subtitle="Frameless / With Patch", profile="--", track="--", glass="10 MM Toughened", hardware="SS Patch Fittings", color="Clear", min_billable_sft=20, rate_per_sft=1350),
+        models.CatalogItem(category="Windows", product_type="Sliding", name="Sliding Window", subtitle="2 Track - 3 Panel", profile_brand="VEKA", profile_series="Euroline 60 mm", profile="VEKA 60 mm", track="2 Track", glass_type="Clear Toughened", glass_thickness="5 mm", glass_color="Clear", glass="5 MM Saint Gobain", hardware="McCoy Hardware", reinforcement="1.5 mm GI", mesh="SS Mesh", color="White", min_billable_sft=10, rate_per_sft=680, gst_percent=18, installation_rate=120, rounding_rule="Round up"),
+        models.CatalogItem(category="Windows", product_type="Casement", name="Casement Window", subtitle="Side Hung - Outward", profile_brand="VEKA", profile_series="Euroline 60 mm", profile="VEKA 60 mm", track="--", glass_type="Clear Toughened", glass_thickness="5 mm", glass_color="Clear", glass="5 MM Saint Gobain", hardware="McCoy Hardware", reinforcement="1.5 mm GI", mesh="Optional", color="White", min_billable_sft=8, rate_per_sft=720, gst_percent=18, installation_rate=120, rounding_rule="Round up"),
+        models.CatalogItem(category="Doors", product_type="French", name="French Door", subtitle="2 Panel - Outward", profile_brand="VEKA", profile_series="Euroline 70 mm", profile="VEKA 70 mm", track="--", glass_type="Clear Toughened", glass_thickness="6 mm", glass_color="Clear", glass="6 MM Saint Gobain", hardware="Dorma Handle Set", reinforcement="2 mm GI", mesh="Optional", color="White", min_billable_sft=15, rate_per_sft=1150, gst_percent=18, installation_rate=140, rounding_rule="Round up"),
+        models.CatalogItem(category="Glass", product_type="Fixed", name="Fixed Glass", subtitle="Single Pane", profile_brand="VEKA", profile_series="Euroline 60 mm", profile="VEKA 60 mm", track="--", glass_type="Clear Toughened", glass_thickness="5 mm", glass_color="Clear", glass="5 MM Saint Gobain", hardware="Structural Silicone", reinforcement="1.5 mm GI", mesh="--", color="Clear", min_billable_sft=6, rate_per_sft=450, gst_percent=18, installation_rate=100, rounding_rule="Round up"),
+        models.CatalogItem(category="Mesh", product_type="Openable", name="Mosquito Mesh", subtitle="Openable", profile_brand="Generic", profile_series="Mesh Frame", profile="--", track="1 MM Galvanized", glass_type="--", glass_thickness="", glass_color="", glass="--", hardware="S S Black Mesh", reinforcement="--", mesh="SS Black Mesh", color="Black", min_billable_sft=5, rate_per_sft=220, gst_percent=18, installation_rate=60, rounding_rule="Round up"),
+        models.CatalogItem(category="Glass", product_type="Partition", name="Toughened Glass Partition", subtitle="Frameless / With Patch", profile_brand="Generic", profile_series="Frameless", profile="--", track="--", glass_type="Toughened", glass_thickness="10 mm", glass_color="Clear", glass="10 MM Toughened", hardware="SS Patch Fittings", reinforcement="--", mesh="--", color="Clear", min_billable_sft=20, rate_per_sft=1350, gst_percent=18, installation_rate=150, rounding_rule="Round up"),
     ]
     db.add_all(catalog)
     db.add(models.PricingRule(id=1))
@@ -89,6 +90,7 @@ def seed_database(db: Session) -> None:
         db.add(models.Followup(customer_id=customer.id, scheduled_at=when, purpose=purpose, assigned_to=customer.assigned_to, priority=priority, channel=channel, status="Today", next_reminder=when + timedelta(hours=4), notes=note))
     db.commit()
     backfill_customer_details(db)
+    backfill_catalog_details(db)
 
 
 def backfill_customer_details(db: Session) -> None:
@@ -111,5 +113,39 @@ def backfill_customer_details(db: Session) -> None:
         if notes and not customer.notes:
             customer.notes = notes
             changed = True
+    if changed:
+        db.commit()
+
+
+def backfill_catalog_details(db: Session) -> None:
+    defaults = {
+        "Sliding Window": ("VEKA", "Euroline 60 mm", "Clear Toughened", "5 mm", "Clear", "1.5 mm GI", "SS Mesh", Decimal("18"), Decimal("120")),
+        "Casement Window": ("VEKA", "Euroline 60 mm", "Clear Toughened", "5 mm", "Clear", "1.5 mm GI", "Optional", Decimal("18"), Decimal("120")),
+        "French Door": ("VEKA", "Euroline 70 mm", "Clear Toughened", "6 mm", "Clear", "2 mm GI", "Optional", Decimal("18"), Decimal("140")),
+        "Fixed Glass": ("VEKA", "Euroline 60 mm", "Clear Toughened", "5 mm", "Clear", "1.5 mm GI", "--", Decimal("18"), Decimal("100")),
+        "Mosquito Mesh": ("Generic", "Mesh Frame", "--", "", "", "--", "SS Black Mesh", Decimal("18"), Decimal("60")),
+        "Toughened Glass Partition": ("Generic", "Frameless", "Toughened", "10 mm", "Clear", "--", "--", Decimal("18"), Decimal("150")),
+    }
+    changed = False
+    for item in db.scalars(select(models.CatalogItem)).all():
+        values = defaults.get(item.name)
+        if not values:
+            continue
+        profile_brand, profile_series, glass_type, glass_thickness, glass_color, reinforcement, mesh, gst_percent, installation_rate = values
+        for field, value in {
+            "profile_brand": profile_brand,
+            "profile_series": profile_series,
+            "glass_type": glass_type,
+            "glass_thickness": glass_thickness,
+            "glass_color": glass_color,
+            "reinforcement": reinforcement,
+            "mesh": mesh,
+            "gst_percent": gst_percent,
+            "installation_rate": installation_rate,
+            "rounding_rule": "Round up",
+        }.items():
+            if not getattr(item, field):
+                setattr(item, field, value)
+                changed = True
     if changed:
         db.commit()

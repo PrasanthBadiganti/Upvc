@@ -85,6 +85,73 @@ def test_customer_profile_and_extended_fields():
         assert data["timeline"]
 
 
+def test_catalog_price_master_drives_quotation_item():
+    with TestClient(app) as client:
+        catalog_payload = {
+            "category": "Windows",
+            "product_type": "Sliding",
+            "name": "Phase 3 Sliding Test",
+            "subtitle": "2 Track",
+            "profile_brand": "VEKA",
+            "profile_series": "Euroline 60 mm",
+            "profile": "VEKA 60 mm",
+            "track": "2 Track",
+            "glass_type": "Clear Toughened",
+            "glass_thickness": "5 mm",
+            "glass_color": "Clear",
+            "glass": "5 MM Saint Gobain",
+            "hardware": "McCoy",
+            "reinforcement": "1.5 mm GI",
+            "mesh": "SS Mesh",
+            "color": "White",
+            "min_billable_sft": "20",
+            "rate_per_sft": "1000",
+            "gst_percent": "18",
+            "installation_rate": "120",
+            "rounding_rule": "Round up",
+            "status": "Active",
+        }
+        catalog = client.post("/api/catalog", json=catalog_payload)
+        assert catalog.status_code == 201, catalog.text
+        catalog_item = catalog.json()
+
+        customers = client.get("/api/customers").json()
+        payload = {
+            "customer_id": customers[0]["id"],
+            "quotation_date": "2026-07-14",
+            "validity_days": 30,
+            "sales_person": "Arun Verma",
+            "site_location": "Phase 3 Site",
+            "address": "Phase 3 Address",
+            "status": "Draft",
+            "transport": "0",
+            "discount": "0",
+            "notes": "Catalog linked item",
+            "items": [{
+                "catalog_item_id": catalog_item["id"],
+                "category": catalog_item["name"],
+                "style": catalog_item["product_type"],
+                "width_mm": "600",
+                "height_mm": "600",
+                "sft": "3.88",
+                "quantity": 1,
+                "total_sft": "0",
+                "rate_per_sft": "0",
+                "amount": "0",
+                "location": "Kitchen"
+            }]
+        }
+        quote = client.post("/api/quotations", json=payload)
+        assert quote.status_code == 201, quote.text
+        item = quote.json()["items"][0]
+        assert item["catalog_item_id"] == catalog_item["id"]
+        assert Decimal(item["total_sft"]) == Decimal("20.00")
+        assert Decimal(item["rate_per_sft"]) == Decimal("1000.00")
+        assert Decimal(item["amount"]) == Decimal("20000.00")
+        assert item["profile"] == "VEKA 60 mm"
+        assert item["mesh"] == "SS Mesh"
+
+
 def test_prebuilt_frontend_is_served():
     with TestClient(app) as client:
         root = client.get("/")

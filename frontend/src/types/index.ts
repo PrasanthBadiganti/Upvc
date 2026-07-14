@@ -23,19 +23,30 @@ export type CatalogItem = {
   product_type: string;
   name: string;
   subtitle: string;
+  profile_brand: string;
+  profile_series: string;
   profile: string;
   track: string;
+  glass_type: string;
+  glass_thickness: string;
+  glass_color: string;
   glass: string;
   hardware: string;
+  reinforcement: string;
+  mesh: string;
   color: string;
   min_billable_sft: number | string;
   rate_per_sft: number | string;
+  gst_percent: number | string;
+  installation_rate: number | string;
+  rounding_rule: string;
   status: string;
   updated_at: string;
 };
 
 export type QuotationItem = {
   id?: number;
+  catalog_item_id?: number | null;
   category: string;
   style: string;
   width_mm: number;

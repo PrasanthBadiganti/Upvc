@@ -42,13 +42,23 @@ class CatalogItemBase(BaseModel):
     product_type: str = ""
     name: str
     subtitle: str = ""
+    profile_brand: str = ""
+    profile_series: str = ""
     profile: str = ""
     track: str = ""
+    glass_type: str = ""
+    glass_thickness: str = ""
+    glass_color: str = ""
     glass: str = ""
     hardware: str = ""
+    reinforcement: str = ""
+    mesh: str = ""
     color: str = "White"
     min_billable_sft: Decimal = Decimal("5")
     rate_per_sft: Decimal = Decimal("0")
+    gst_percent: Decimal = Decimal("18")
+    installation_rate: Decimal = Decimal("0")
+    rounding_rule: str = "Round up"
     status: str = "Active"
 
 
@@ -76,6 +86,7 @@ class PricingRuleRead(PricingRulePayload, ORMModel):
 
 
 class QuotationItemPayload(BaseModel):
+    catalog_item_id: int | None = None
     category: str
     style: str = ""
     width_mm: Decimal = Decimal("0")

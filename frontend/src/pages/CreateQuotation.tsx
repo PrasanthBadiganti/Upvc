@@ -3,7 +3,7 @@ import { Boxes, CircleDot, DoorOpen, FileDown, Grid3X3, Layers3, Palette, Plus, 
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { Button, Card, Field, Input, PageHeader, Select } from '../components/UI';
-import { Customer, QuotationItem } from '../types';
+import { CatalogItem, Customer, QuotationItem } from '../types';
 import { currency } from '../utils';
 
 const baseItems: QuotationItem[] = [
@@ -14,11 +14,12 @@ const baseItems: QuotationItem[] = [
   {category:'Ventilator',style:'Top Hung',width_mm:600,height_mm:450,sft:2.92,quantity:2,total_sft:5.83,rate_per_sft:900,amount:5247,location:'Toilet'},
 ];
 
-const emptyItem = (): QuotationItem => ({category:'Sliding Window',style:'2 Track',width_mm:1000,height_mm:1000,sft:10.76,quantity:1,total_sft:10.76,rate_per_sft:850,amount:9146,location:''});
+const emptyItem = (): QuotationItem => ({catalog_item_id:null,category:'Sliding Window',style:'2 Track',width_mm:1000,height_mm:1000,sft:10.76,quantity:1,total_sft:10.76,rate_per_sft:850,amount:9146,location:''});
 
 export default function CreateQuotation() {
   const navigate = useNavigate();
   const [customers,setCustomers] = useState<Customer[]>([]);
+  const [catalog,setCatalog] = useState<CatalogItem[]>([]);
   const [customerId,setCustomerId] = useState<number>(0);
   const [items,setItems] = useState<QuotationItem[]>(baseItems);
   const [transport,setTransport] = useState(2500);
@@ -26,7 +27,7 @@ export default function CreateQuotation() {
   const [status,setStatus] = useState('Draft');
   const [saving,setSaving] = useState(false);
   const [form,setForm] = useState({quotation_date:new Date().toISOString().slice(0,10),validity_days:30,sales_person:'Arun Verma',site_location:'Greenview Residency, Gandhinagar, Gujarat',address:'Plot No. 45, Sector 9, Gandhinagar, Gujarat - 382009',notes:'All dimensions are in mm. Delivery in 15-18 working days after confirmation.'});
-  useEffect(()=>{ api.get('/customers').then(r=>{setCustomers(r.data); if(r.data[0]) setCustomerId(r.data[0].id);}); },[]);
+  useEffect(()=>{ api.get('/customers').then(r=>{setCustomers(r.data); if(r.data[0]) setCustomerId(r.data[0].id);}); api.get('/catalog',{params:{status:'Active'}}).then(r=>setCatalog(r.data)); },[]);
 
   const totals = useMemo(()=>{
     const subtotal = items.reduce((s,i)=>s+Number(i.amount||0),0);
@@ -39,11 +40,41 @@ export default function CreateQuotation() {
   const update = (index:number,key:keyof QuotationItem,value:string|number) => {
     setItems(prev=>prev.map((row,i)=>{
       if(i!==index) return row;
-      const next={...row,[key]: typeof value==='string' && ['category','style','location'].includes(String(key)) ? value : Number(value)} as QuotationItem;
+      const stringFields = ['category','style','location','profile','color','track','glass','glass_color','hardware','reinforcement','mesh'];
+      const next={...row,[key]: typeof value==='string' && stringFields.includes(String(key)) ? value : Number(value)} as QuotationItem;
       if(['width_mm','height_mm'].includes(String(key))) next.sft = Math.max(0, Number(((next.width_mm/304.8)*(next.height_mm/304.8)).toFixed(2)));
-      next.total_sft = Number((next.sft*next.quantity).toFixed(2));
+      const selectedCatalog = catalog.find(item => item.id === next.catalog_item_id);
+      const minSft = Number(selectedCatalog?.min_billable_sft || 0);
+      next.total_sft = Number((Math.max(Number(next.sft || 0), minSft)*next.quantity).toFixed(2));
       next.amount = Number((next.total_sft*next.rate_per_sft).toFixed(2));
       return next;
+    }));
+  };
+
+  const applyCatalog = (index:number,catalogId:number) => {
+    const selectedItem = catalog.find(item=>item.id===catalogId);
+    if(!selectedItem) return;
+    setItems(prev=>prev.map((row,i)=>{
+      if(i!==index) return row;
+      const sft = Number(row.sft || ((row.width_mm/304.8)*(row.height_mm/304.8)).toFixed(2));
+      const totalSft = Number((Math.max(sft, Number(selectedItem.min_billable_sft || 0))*row.quantity).toFixed(2));
+      return {
+        ...row,
+        catalog_item_id: selectedItem.id,
+        category: selectedItem.name,
+        style: selectedItem.product_type,
+        total_sft: totalSft,
+        rate_per_sft: Number(selectedItem.rate_per_sft),
+        amount: Number((totalSft*Number(selectedItem.rate_per_sft)).toFixed(2)),
+        profile: selectedItem.profile,
+        color: selectedItem.color,
+        track: selectedItem.track,
+        glass: selectedItem.glass,
+        glass_color: selectedItem.glass_color,
+        hardware: selectedItem.hardware,
+        reinforcement: selectedItem.reinforcement,
+        mesh: selectedItem.mesh,
+      };
     }));
   };
 
@@ -52,13 +83,14 @@ export default function CreateQuotation() {
     setSaving(true);
     try {
       const selected=customers.find(c=>c.id===customerId);
-      const payload={customer_id:customerId,...form,status:send?'Sent':status,transport,discount,items:items.map(i=>({...i,profile:'VEKA Euroline 60 mm',color:'White',track:'Stainless Steel Track',glass:'5mm Clear Toughened',glass_color:'Clear',hardware:'DORMA',reinforcement:'1.5mm GI',mesh:'SS Mesh'})),address:form.address || selected?.address || ''};
+      const payload={customer_id:customerId,...form,status:send?'Sent':status,transport,discount,items,address:form.address || selected?.address || ''};
       const {data}=await api.post('/quotations',payload);
       navigate('/quotations',{state:{created:data.number}});
     } finally { setSaving(false); }
   };
 
   const selected=customers.find(c=>c.id===customerId);
+  const specSource = items.find(item => item.catalog_item_id) || items[0];
   return <>
     <PageHeader title="Create Quotation" subtitle="Quotations / New Quotation" />
     <div className="quotation-layout">
@@ -79,8 +111,9 @@ export default function CreateQuotation() {
 
         <Card className="quote-items-card">
           <div className="quote-items-toolbar"><h3>Quotation Items</h3><div className="quote-items-actions"><Button tone="secondary"><FileDown size={15}/> Import from Excel</Button><Button onClick={()=>setItems([...items,emptyItem()])}><Plus size={15}/> Add Item</Button></div></div>
-          <div className="table-wrap"><table className="data-table editable-table"><thead><tr><th>S.No</th><th>Category</th><th>Style</th><th>Width (mm)</th><th>Height (mm)</th><th>SFT</th><th>Qty</th><th>Total SFT</th><th>Rate / SFT (Rs.)</th><th>Amount (Rs.)</th><th>Location</th><th>Action</th></tr></thead><tbody>{items.map((row,i)=><tr key={i}>
+          <div className="table-wrap"><table className="data-table editable-table"><thead><tr><th>S.No</th><th>Price Master</th><th>Category</th><th>Style</th><th>Width (mm)</th><th>Height (mm)</th><th>SFT</th><th>Qty</th><th>Total SFT</th><th>Rate / SFT (Rs.)</th><th>Amount (Rs.)</th><th>Location</th><th>Action</th></tr></thead><tbody>{items.map((row,i)=><tr key={i}>
             <td>{i+1}</td>
+            <td><select value={row.catalog_item_id || ''} onChange={e=>applyCatalog(i,Number(e.target.value))}><option value="">Manual</option>{catalog.map(item=><option key={item.id} value={item.id}>{item.name} - {currency(item.rate_per_sft)}</option>)}</select></td>
             <td><input value={row.category} onChange={e=>update(i,'category',e.target.value)}/></td><td><input value={row.style} onChange={e=>update(i,'style',e.target.value)}/></td>
             <td><input type="number" value={row.width_mm} onChange={e=>update(i,'width_mm',e.target.value)}/></td><td><input type="number" value={row.height_mm} onChange={e=>update(i,'height_mm',e.target.value)}/></td>
             <td><input type="number" value={row.sft} onChange={e=>update(i,'sft',e.target.value)}/></td><td><input type="number" value={row.quantity} onChange={e=>update(i,'quantity',e.target.value)}/></td>
@@ -92,8 +125,8 @@ export default function CreateQuotation() {
 
         <div className="spec-grid">
           {[
-            [Layers3,'Profile','VEKA Euroline 60 mm','60 mm, 3 Chamber'],[Palette,'Color','White','Single Side Laminated'],[DoorOpen,'Track','Stainless Steel Track','SS 304, Heavy Duty'],[Grid3X3,'Glass','5mm Clear Toughened','ISI Marked'],
-            [CircleDot,'Glass Color','Clear','Transparent'],[Shield,'Hardware','DORMA','Premium Hardware'],[Boxes,'Reinforcement','1.5mm GI','Inside Frame'],[Grid3X3,'Mesh','SS Mesh','304 Grade']
+            [Layers3,'Profile',specSource?.profile || 'Manual','Price master material'],[Palette,'Color',specSource?.color || 'Manual','Selected finish'],[DoorOpen,'Track',specSource?.track || 'Manual','Track / opening system'],[Grid3X3,'Glass',specSource?.glass || 'Manual','Glass specification'],
+            [CircleDot,'Glass Color',specSource?.glass_color || 'Manual','Selected tint'],[Shield,'Hardware',specSource?.hardware || 'Manual','Hardware set'],[Boxes,'Reinforcement',specSource?.reinforcement || 'Manual','Internal support'],[Grid3X3,'Mesh',specSource?.mesh || 'Manual','Mesh option']
           ].map(([Icon,label,value,desc],i)=>{const I=Icon as typeof Layers3; return <div className="spec-card" key={i}><I className="spec-icon" size={23}/><div><small>{String(label)}</small><b>{String(value)}</b><em>{String(desc)}</em></div></div>})}
         </div>
         <Card className="quote-notes"><small>Notes / Special Instructions (Optional)</small><p>{form.notes}</p></Card>
