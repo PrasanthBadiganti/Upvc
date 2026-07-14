@@ -268,6 +268,8 @@ Supported:
 - Auto-update customer pending payment
 - Reject zero/negative payment
 - Reject overpayment
+- Reject payments against cancelled invoices
+- Download backend-generated payment receipt PDF from invoice history and payments list
 
 Payment modes:
 
@@ -277,7 +279,7 @@ Payment modes:
 - Cheque
 - Card
 
-Payment receipt PDF is not implemented yet.
+Payment receipt PDF is implemented.
 
 ### Follow-ups and Collections
 
@@ -384,6 +386,8 @@ Invoices and payments:
 - `GET /api/invoices/{invoice_id}/pdf`
 - `POST /api/invoices/{invoice_id}/payments`
 - `GET /api/payments`
+- `GET /api/payments/{payment_id}`
+- `GET /api/payments/{payment_id}/receipt`
 
 Follow-ups:
 
@@ -457,6 +461,7 @@ Last verified on 2026-07-14:
 - Phase 3 Catalog/Price Master completed: expanded material fields, safe SQLite migration, richer catalog UI, catalog summary endpoint, catalog-linked quotation items, and backend tests.
 - Phase 4 Quotation Builder completed: edit route, locked accepted/converted quotations, duplicate/revise actions, shared backend recalculation path, and backend tests.
 - Phase 5 Quotation PDF completed: backend ReportLab quotation PDF endpoint, frontend download action, and backend tests.
+- Phase 6 Payment Receipt completed: backend receipt PDF endpoint, payment detail API, cancelled-invoice payment guard, receipt buttons, and backend tests.
 
 Known environment notes:
 

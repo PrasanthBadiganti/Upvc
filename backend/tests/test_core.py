@@ -8,6 +8,8 @@ if DB_FILE.exists():
 os.environ["DATABASE_URL"] = f"sqlite:///{DB_FILE}"
 
 from fastapi.testclient import TestClient
+from app import models
+from app.database import SessionLocal
 from app.main import app
 
 
@@ -243,6 +245,81 @@ def test_quotation_pdf_download():
         assert pdf.headers["content-type"] == "application/pdf"
         assert quote.json()["number"] in pdf.headers["content-disposition"]
         assert pdf.content.startswith(b"%PDF")
+
+
+def test_payment_receipt_pdf_and_cancelled_invoice_guard():
+    with TestClient(app) as client:
+        customers = client.get("/api/customers").json()
+        payload = {
+            "customer_id": customers[0]["id"],
+            "quotation_date": "2026-07-14",
+            "validity_days": 30,
+            "sales_person": "Arun Verma",
+            "site_location": "Receipt Site",
+            "address": "Receipt Address",
+            "status": "Sent",
+            "transport": "0",
+            "discount": "0",
+            "notes": "Receipt flow",
+            "items": [{
+                "category": "Sliding Door",
+                "style": "2 Track",
+                "width_mm": "1200",
+                "height_mm": "2100",
+                "sft": "27.13",
+                "quantity": 1,
+                "total_sft": "27.13",
+                "rate_per_sft": "1100",
+                "amount": "29843",
+                "location": "Balcony"
+            }]
+        }
+        quote = client.post("/api/quotations", json=payload)
+        assert quote.status_code == 201, quote.text
+        invoice = client.post(f"/api/quotations/{quote.json()['id']}/convert")
+        assert invoice.status_code == 200, invoice.text
+        invoice_json = invoice.json()
+
+        payment = client.post(
+            f"/api/invoices/{invoice_json['id']}/payments",
+            json={
+                "payment_date": "2026-07-14",
+                "mode": "NEFT",
+                "reference_number": "RCPT-001",
+                "amount": "1000",
+                "received_by": "Admin",
+                "notes": "Receipt test payment",
+            },
+        )
+        assert payment.status_code == 201, payment.text
+        payment_id = payment.json()["payments"][0]["id"]
+        detail = client.get(f"/api/payments/{payment_id}")
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["reference_number"] == "RCPT-001"
+        receipt = client.get(f"/api/payments/{payment_id}/receipt")
+        assert receipt.status_code == 200, receipt.text
+        assert receipt.headers["content-type"] == "application/pdf"
+        assert "Receipt-" in receipt.headers["content-disposition"]
+        assert receipt.content.startswith(b"%PDF")
+
+        with SessionLocal() as db:
+            cancelled_invoice = db.get(models.Invoice, invoice_json["id"])
+            cancelled_invoice.status = "Cancelled"
+            db.commit()
+
+        cancelled_payment = client.post(
+            f"/api/invoices/{invoice_json['id']}/payments",
+            json={
+                "payment_date": "2026-07-14",
+                "mode": "Cash",
+                "reference_number": "CANCELLED",
+                "amount": "10",
+                "received_by": "Admin",
+                "notes": "Should fail",
+            },
+        )
+        assert cancelled_payment.status_code == 400
+        assert "cancelled invoice" in cancelled_payment.json()["detail"].lower()
 
 
 def test_prebuilt_frontend_is_served():

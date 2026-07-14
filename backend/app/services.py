@@ -205,6 +205,18 @@ def get_invoice(db: Session, invoice_id: int) -> models.Invoice:
     return db.scalars(stmt).unique().one()
 
 
+def get_payment(db: Session, payment_id: int) -> models.Payment:
+    stmt = (
+        select(models.Payment)
+        .where(models.Payment.id == payment_id)
+        .options(
+            joinedload(models.Payment.invoice).joinedload(models.Invoice.customer),
+            joinedload(models.Payment.invoice).selectinload(models.Invoice.payments),
+        )
+    )
+    return db.scalars(stmt).unique().one()
+
+
 def convert_quotation_to_invoice(db: Session, quotation_id: int) -> models.Invoice:
     quote = get_quotation(db, quotation_id)
     if quote.invoice:
@@ -250,6 +262,8 @@ def convert_quotation_to_invoice(db: Session, quotation_id: int) -> models.Invoi
 
 def record_payment(db: Session, invoice_id: int, amount: Decimal, **kwargs) -> models.Invoice:
     invoice = get_invoice(db, invoice_id)
+    if invoice.status == "Cancelled":
+        raise ValueError("Cannot record payment against a cancelled invoice")
     amount = money(amount)
     if amount <= 0:
         raise ValueError("Payment amount must be greater than zero")
@@ -263,4 +277,5 @@ def record_payment(db: Session, invoice_id: int, amount: Decimal, **kwargs) -> m
     customer.pending_payment = money(max(Decimal("0"), Decimal(customer.pending_payment or 0) - amount))
     db.add(payment)
     db.commit()
+    db.expire_all()
     return get_invoice(db, invoice_id)
