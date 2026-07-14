@@ -71,6 +71,16 @@ def ensure_schema() -> None:
                     connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))
 
 
+def get_or_create_business_settings(db: Session) -> models.BusinessSettings:
+    settings = db.get(models.BusinessSettings, 1)
+    if not settings:
+        settings = models.BusinessSettings(id=1)
+        db.add(settings)
+        db.commit()
+        db.refresh(settings)
+    return settings
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -374,6 +384,21 @@ def update_pricing_rules(payload: schemas.PricingRulePayload, db: Session = Depe
     return rule
 
 
+@app.get("/api/business-settings", response_model=schemas.BusinessSettingsRead)
+def get_business_settings(db: Session = Depends(get_db)):
+    return get_or_create_business_settings(db)
+
+
+@app.put("/api/business-settings", response_model=schemas.BusinessSettingsRead)
+def update_business_settings(payload: schemas.BusinessSettingsPayload, db: Session = Depends(get_db)):
+    settings = get_or_create_business_settings(db)
+    for key, value in payload.model_dump().items():
+        setattr(settings, key, value)
+    db.commit()
+    db.refresh(settings)
+    return settings
+
+
 @app.get("/api/quotations", response_model=list[schemas.QuotationRead])
 def list_quotations(db: Session = Depends(get_db)):
     stmt = select(models.Quotation).options(selectinload(models.Quotation.items), joinedload(models.Quotation.customer)).order_by(models.Quotation.id.desc())
@@ -447,7 +472,7 @@ def quotation_pdf(quotation_id: int, db: Session = Depends(get_db)):
         quotation = get_quotation(db, quotation_id)
     except Exception as exc:
         raise HTTPException(404, "Quotation not found") from exc
-    data = build_quotation_pdf(quotation)
+    data = build_quotation_pdf(quotation, get_or_create_business_settings(db))
     return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{quotation.number}.pdf"'})
 
 
@@ -494,7 +519,7 @@ def payment_receipt(payment_id: int, db: Session = Depends(get_db)):
         payment = get_payment(db, payment_id)
     except Exception as exc:
         raise HTTPException(404, "Payment not found") from exc
-    data = build_payment_receipt_pdf(payment)
+    data = build_payment_receipt_pdf(payment, get_or_create_business_settings(db))
     filename = f"Receipt-{payment.invoice.number}-{payment.id}.pdf"
     return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
@@ -505,7 +530,7 @@ def invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
         invoice = get_invoice(db, invoice_id)
     except Exception as exc:
         raise HTTPException(404, "Invoice not found") from exc
-    data = build_invoice_pdf(invoice)
+    data = build_invoice_pdf(invoice, get_or_create_business_settings(db))
     return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{invoice.number}.pdf"'})
 
 

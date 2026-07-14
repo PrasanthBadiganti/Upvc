@@ -85,6 +85,29 @@ class PricingRuleRead(PricingRulePayload, ORMModel):
     id: int
 
 
+class BusinessSettingsPayload(BaseModel):
+    company_name: str = "Crystal Frames Studio"
+    tagline: str = "Premium UPVC Windows, Doors and Glass Solutions"
+    phone: str = "+91 96667 43044"
+    email: str = "hello@crystalframes.example"
+    address: str = "Vizianagaram, Andhra Pradesh"
+    gst_number: str = "37ASLPH7160H1ZI"
+    logo_text: str = "CF"
+    bank_name: str = "Bank of Baroda"
+    account_name: str = "Crystal Frames Studio"
+    account_number: str = "000000000000"
+    ifsc: str = "BARB0VIZIAN"
+    upi_id: str = "crystalframes@upi"
+    quotation_terms: str = "50% advance with order confirmation. Balance as per approved payment schedule. Final billing is subject to site measurement and approved specifications."
+    invoice_terms: str = "Payment due as per agreed schedule. Goods once supplied against approved specifications are not returnable."
+    payment_terms: str = "Payment received with thanks. This receipt is valid subject to bank realization."
+
+
+class BusinessSettingsRead(BusinessSettingsPayload, ORMModel):
+    id: int
+    updated_at: datetime
+
+
 class QuotationItemPayload(BaseModel):
     catalog_item_id: int | None = None
     category: str

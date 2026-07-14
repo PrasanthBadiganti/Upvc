@@ -80,6 +80,28 @@ class PricingRule(Base):
     discount_above_300: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=6)
 
 
+class BusinessSettings(Base):
+    __tablename__ = "business_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    company_name: Mapped[str] = mapped_column(String(180), default="Crystal Frames Studio")
+    tagline: Mapped[str] = mapped_column(String(220), default="Premium UPVC Windows, Doors and Glass Solutions")
+    phone: Mapped[str] = mapped_column(String(60), default="+91 96667 43044")
+    email: Mapped[str] = mapped_column(String(160), default="hello@crystalframes.example")
+    address: Mapped[str] = mapped_column(Text, default="Vizianagaram, Andhra Pradesh")
+    gst_number: Mapped[str] = mapped_column(String(40), default="37ASLPH7160H1ZI")
+    logo_text: Mapped[str] = mapped_column(String(12), default="CF")
+    bank_name: Mapped[str] = mapped_column(String(160), default="Bank of Baroda")
+    account_name: Mapped[str] = mapped_column(String(180), default="Crystal Frames Studio")
+    account_number: Mapped[str] = mapped_column(String(80), default="000000000000")
+    ifsc: Mapped[str] = mapped_column(String(40), default="BARB0VIZIAN")
+    upi_id: Mapped[str] = mapped_column(String(120), default="crystalframes@upi")
+    quotation_terms: Mapped[str] = mapped_column(Text, default="50% advance with order confirmation. Balance as per approved payment schedule. Final billing is subject to site measurement and approved specifications.")
+    invoice_terms: Mapped[str] = mapped_column(Text, default="Payment due as per agreed schedule. Goods once supplied against approved specifications are not returnable.")
+    payment_terms: Mapped[str] = mapped_column(Text, default="Payment received with thanks. This receipt is valid subject to bank realization.")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Quotation(Base):
     __tablename__ = "quotations"
 

@@ -322,6 +322,64 @@ def test_payment_receipt_pdf_and_cancelled_invoice_guard():
         assert "cancelled invoice" in cancelled_payment.json()["detail"].lower()
 
 
+def test_business_settings_drive_document_generation():
+    with TestClient(app) as client:
+        settings = client.get("/api/business-settings")
+        assert settings.status_code == 200, settings.text
+        payload = {**settings.json(), "company_name": "Astra Glaze Systems", "logo_text": "AG", "upi_id": "astra@upi"}
+        payload.pop("id", None)
+        payload.pop("updated_at", None)
+        saved = client.put("/api/business-settings", json=payload)
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["company_name"] == "Astra Glaze Systems"
+
+        customers = client.get("/api/customers").json()
+        quote_payload = {
+            "customer_id": customers[0]["id"],
+            "quotation_date": "2026-07-14",
+            "validity_days": 30,
+            "sales_person": "Arun Verma",
+            "site_location": "Settings PDF Site",
+            "address": "Settings PDF Address",
+            "status": "Sent",
+            "transport": "0",
+            "discount": "0",
+            "notes": "Settings PDF test",
+            "items": [{
+                "category": "Sliding Window",
+                "style": "2 Track",
+                "width_mm": "1000",
+                "height_mm": "1000",
+                "sft": "10.76",
+                "quantity": 1,
+                "total_sft": "10.76",
+                "rate_per_sft": "900",
+                "amount": "9684",
+                "location": "Hall"
+            }]
+        }
+        quote = client.post("/api/quotations", json=quote_payload)
+        assert quote.status_code == 201, quote.text
+        quote_pdf = client.get(f"/api/quotations/{quote.json()['id']}/pdf")
+        assert quote_pdf.status_code == 200, quote_pdf.text
+        assert quote_pdf.content.startswith(b"%PDF")
+
+        invoice = client.post(f"/api/quotations/{quote.json()['id']}/convert")
+        assert invoice.status_code == 200, invoice.text
+        invoice_pdf = client.get(f"/api/invoices/{invoice.json()['id']}/pdf")
+        assert invoice_pdf.status_code == 200, invoice_pdf.text
+        assert invoice_pdf.content.startswith(b"%PDF")
+
+        payment = client.post(
+            f"/api/invoices/{invoice.json()['id']}/payments",
+            json={"payment_date": "2026-07-14", "mode": "UPI", "reference_number": "SETTINGS-PDF", "amount": "500", "received_by": "Admin", "notes": "Receipt"},
+        )
+        assert payment.status_code == 201, payment.text
+        receipt = client.get(f"/api/payments/{payment.json()['payments'][0]['id']}/receipt")
+        assert receipt.status_code == 200, receipt.text
+        assert receipt.content.startswith(b"%PDF")
+
+
 def test_reports_include_collection_and_conversion_breakdowns():
     with TestClient(app) as client:
         report = client.get("/api/reports")

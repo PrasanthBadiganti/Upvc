@@ -336,13 +336,15 @@ Still partly static:
 Supported:
 
 - Persist pricing/tax defaults through pricing rules API
+- Persist business profile: company name, tagline, contact details, address, GSTIN, logo text
+- Persist bank/payment details: bank, account name, account number, IFSC, UPI
+- Persist document terms for quotations, invoices, and receipts
+- Use saved business settings in quotation, invoice, and payment receipt PDFs
+- Modern branded PDF templates for quotations, invoices, and payment receipts
 
 Not fully supported:
 
-- Business profile persistence
-- Bank details persistence
-- Logo upload
-- Terms template persistence
+- Image logo upload
 
 ## API Endpoint Inventory
 
@@ -372,6 +374,8 @@ Catalog and pricing:
 - `DELETE /api/catalog/{item_id}`
 - `GET /api/pricing-rules`
 - `PUT /api/pricing-rules`
+- `GET /api/business-settings`
+- `PUT /api/business-settings`
 
 Quotations:
 
@@ -469,6 +473,7 @@ Last verified on 2026-07-14:
 - Phase 5 Quotation PDF completed: backend ReportLab quotation PDF endpoint, frontend download action, and backend tests.
 - Phase 6 Payment Receipt completed: backend receipt PDF endpoint, payment detail API, cancelled-invoice payment guard, receipt buttons, and backend tests.
 - Phase 6 Reports Polish completed: aging buckets, monthly financial trend, conversion summary, top pending collections, salesperson performance, frontend report tables/charts, and backend tests.
+- Phase 7 Settings and Document Templates completed: persistent business profile, bank details, document terms, quotation sharing action, and modern branded quotation/invoice/receipt PDFs.
 
 Known environment notes:
 

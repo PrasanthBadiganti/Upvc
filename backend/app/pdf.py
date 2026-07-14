@@ -1,43 +1,181 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from decimal import Decimal
 from io import BytesIO
 from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from .models import Invoice, Payment, Quotation
+from .models import BusinessSettings, Invoice, Payment, Quotation
+
+NAVY = colors.HexColor("#12314f")
+BLUE = colors.HexColor("#2563eb")
+TEAL = colors.HexColor("#14b8a6")
+INK = colors.HexColor("#172033")
+MUTED = colors.HexColor("#64748b")
+BORDER = colors.HexColor("#d8e1ec")
+SOFT = colors.HexColor("#f6f8fb")
+PALE_BLUE = colors.HexColor("#eaf2ff")
 
 
 def _money(value: object) -> str:
-    return f"Rs. {value:,.2f}"
+    return f"Rs. {Decimal(str(value or 0)):,.2f}"
 
 
 def _text(value: object) -> str:
     return escape(str(value or ""))
 
 
-def build_invoice_pdf(invoice: Invoice) -> bytes:
+def _business(settings: BusinessSettings | None) -> BusinessSettings:
+    return settings or BusinessSettings(id=1)
+
+
+def _styles() -> dict[str, ParagraphStyle]:
+    sample = getSampleStyleSheet()
+    sample.add(ParagraphStyle("DocTitle", parent=sample["Heading1"], fontName="Helvetica-Bold", fontSize=20, leading=24, textColor=NAVY, spaceAfter=4))
+    sample.add(ParagraphStyle("Section", parent=sample["Heading3"], fontName="Helvetica-Bold", fontSize=9.5, leading=12, textColor=NAVY, spaceBefore=3, spaceAfter=5))
+    sample.add(ParagraphStyle("Small", parent=sample["Normal"], fontSize=7.5, leading=10, textColor=MUTED))
+    sample.add(ParagraphStyle("BodySmall", parent=sample["Normal"], fontSize=8, leading=10, textColor=INK))
+    sample.add(ParagraphStyle("RightSmall", parent=sample["Normal"], fontSize=8, leading=10, textColor=INK, alignment=TA_RIGHT))
+    sample.add(ParagraphStyle("Logo", parent=sample["Normal"], fontName="Helvetica-Bold", fontSize=18, leading=22, textColor=colors.white, alignment=TA_CENTER))
+    sample.add(ParagraphStyle("Company", parent=sample["Normal"], fontName="Helvetica-Bold", fontSize=16, leading=19, textColor=NAVY))
+    sample.add(ParagraphStyle("Total", parent=sample["Normal"], fontName="Helvetica-Bold", fontSize=10, leading=12, textColor=NAVY))
+    return sample
+
+
+def _doc(buffer: BytesIO) -> SimpleDocTemplate:
+    return SimpleDocTemplate(buffer, pagesize=A4, rightMargin=12 * mm, leftMargin=12 * mm, topMargin=10 * mm, bottomMargin=11 * mm)
+
+
+def _header(document_title: str, number: str, settings: BusinessSettings | None, styles: dict[str, ParagraphStyle]) -> Table:
+    business = _business(settings)
+    logo = Table([[Paragraph(_text((business.logo_text or "CF")[:4].upper()), styles["Logo"])]], colWidths=[22 * mm], rowHeights=[22 * mm])
+    logo.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), BLUE),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BOX", (0, 0), (-1, -1), 0, BLUE),
+    ]))
+    company = [
+        Paragraph(_text(business.company_name), styles["Company"]),
+        Paragraph(_text(business.tagline), styles["Small"]),
+        Paragraph(f"{_text(business.address)}<br/>GSTIN: {_text(business.gst_number)}<br/>Phone: {_text(business.phone)} | Email: {_text(business.email)}", styles["Small"]),
+    ]
+    doc_info = [
+        Paragraph(document_title.upper(), styles["DocTitle"]),
+        Paragraph(_text(number), styles["RightSmall"]),
+    ]
+    table = Table([[logo, company, doc_info]], colWidths=[26 * mm, 103 * mm, 57 * mm])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BACKGROUND", (2, 0), (2, 0), colors.HexColor("#f8fbff")),
+        ("BOX", (2, 0), (2, 0), 0.6, BORDER),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    return table
+
+
+def _info_card(title: str, rows: list[tuple[str, object]], styles: dict[str, ParagraphStyle]) -> Table:
+    body = [[Paragraph(title.upper(), styles["Section"])]]
+    for label, value in rows:
+        body.append([Paragraph(f"<font color='#64748b'>{_text(label)}</font><br/><b>{_text(value)}</b>", styles["BodySmall"])])
+    table = Table(body, colWidths=[90 * mm])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), PALE_BLUE),
+        ("BOX", (0, 0), (-1, -1), 0.6, BORDER),
+        ("INNERGRID", (0, 1), (-1, -1), 0.3, colors.HexColor("#edf2f7")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return table
+
+
+def _two_cards(left: Table, right: Table) -> Table:
+    table = Table([[left, right]], colWidths=[93 * mm, 93 * mm])
+    table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    return table
+
+
+def _item_table(rows: list[list[object]], widths: list[float], summary_start: int | None = None) -> Table:
+    table = Table(rows, colWidths=widths, repeatRows=1)
+    style = [
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 7),
+        ("GRID", (0, 0), (-1, -1), 0.35, BORDER),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BACKGROUND", (0, 1), (-1, -1), colors.white),
+        ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]
+    if summary_start is not None:
+        style.extend([
+            ("BACKGROUND", (0, summary_start), (-1, -1), SOFT),
+            ("FONTNAME", (-2, summary_start), (-1, -1), "Helvetica-Bold"),
+            ("ALIGN", (-2, summary_start), (-1, -1), "RIGHT"),
+        ])
+    table.setStyle(TableStyle(style))
+    return table
+
+
+def _footer_blocks(settings: BusinessSettings | None, terms: str, styles: dict[str, ParagraphStyle]) -> Table:
+    business = _business(settings)
+    bank = _info_card("Bank / Payment Details", [
+        ("Bank", business.bank_name),
+        ("Account Name", business.account_name),
+        ("Account No.", business.account_number),
+        ("IFSC", business.ifsc),
+        ("UPI", business.upi_id),
+    ], styles)
+    terms_card = _info_card("Terms & Notes", [("Terms", terms)], styles)
+    auth = _info_card("Authorized Signature", [("For", business.company_name), ("Signature", " ")], styles)
+    table = Table([[bank, terms_card], [auth, ""]], colWidths=[93 * mm, 93 * mm], rowHeights=[None, 34 * mm])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("SPAN", (1, 1), (1, 1)),
+    ]))
+    return table
+
+
+def build_invoice_pdf(invoice: Invoice, settings: BusinessSettings | None = None) -> bytes:
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=14 * mm, leftMargin=14 * mm, topMargin=12 * mm, bottomMargin=12 * mm)
-    styles = getSampleStyleSheet()
+    styles = _styles()
     story = [
-        Paragraph("UPVC Pro", styles["Title"]),
-        Paragraph("Windows. Doors. Trust.", styles["Normal"]),
+        _header("Tax Invoice", invoice.number, settings, styles),
         Spacer(1, 8),
-        Paragraph(f"Invoice {invoice.number}", styles["Heading1"]),
-        Paragraph(f"Customer: {invoice.customer.name}", styles["Normal"]),
-        Paragraph(f"Project: {invoice.customer.project_site}", styles["Normal"]),
-        Paragraph(f"Invoice date: {invoice.invoice_date} &nbsp;&nbsp; Due date: {invoice.due_date}", styles["Normal"]),
-        Spacer(1, 12),
+        _two_cards(
+            _info_card("Bill To", [
+                ("Customer", invoice.customer.name),
+                ("GSTIN", invoice.customer.gst_number or "-"),
+                ("Address", invoice.customer.address),
+                ("Project/Site", invoice.customer.project_site),
+            ], styles),
+            _info_card("Invoice Details", [
+                ("Invoice Date", invoice.invoice_date),
+                ("Due Date", invoice.due_date),
+                ("Status", invoice.status),
+                ("Source Quotation", invoice.quotation.number if invoice.quotation else "-"),
+            ], styles),
+        ),
+        Spacer(1, 10),
     ]
     rows = [["#", "Description", "Category", "Qty", "Rate", "GST", "Amount"]]
     for i, item in enumerate(invoice.items, 1):
-        rows.append([str(i), item.description, item.category, f"{item.quantity}", _money(item.rate), f"{item.gst_percent}%", _money(item.amount)])
+        rows.append([str(i), Paragraph(_text(item.description), styles["BodySmall"]), item.category, f"{item.quantity}", _money(item.rate), f"{item.gst_percent}%", _money(item.amount)])
     rows.extend([
         ["", "", "", "", "", "Subtotal", _money(invoice.subtotal)],
         ["", "", "", "", "", "CGST", _money(invoice.cgst)],
@@ -46,48 +184,46 @@ def build_invoice_pdf(invoice: Invoice) -> bytes:
         ["", "", "", "", "", "Paid", _money(invoice.paid_amount)],
         ["", "", "", "", "", "Balance", _money(invoice.pending_balance)],
     ])
-    table = Table(rows, colWidths=[10 * mm, 57 * mm, 26 * mm, 18 * mm, 23 * mm, 18 * mm, 28 * mm])
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eaf2ff")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#17325c")),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d8e1ec")),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN", (3, 1), (-1, -1), "RIGHT"),
-        ("BACKGROUND", (5, -3), (-1, -1), colors.HexColor("#f8fafc")),
-        ("FONTNAME", (5, -3), (-1, -1), "Helvetica-Bold"),
-    ]))
-    story.extend([table, Spacer(1, 14), Paragraph("Payment terms: 50% advance, 40% before delivery, 10% after installation.", styles["Normal"])])
-    doc.build(story)
+    story.extend([
+        _item_table(rows, [9 * mm, 58 * mm, 24 * mm, 16 * mm, 25 * mm, 22 * mm, 32 * mm], len(rows) - 6),
+        Spacer(1, 10),
+        _footer_blocks(settings, _business(settings).invoice_terms, styles),
+    ])
+    _doc(buffer).build(story)
     return buffer.getvalue()
 
 
-def build_quotation_pdf(quotation: Quotation) -> bytes:
+def build_quotation_pdf(quotation: Quotation, settings: BusinessSettings | None = None) -> bytes:
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=12 * mm, leftMargin=12 * mm, topMargin=12 * mm, bottomMargin=12 * mm)
-    styles = getSampleStyleSheet()
+    styles = _styles()
     valid_until = quotation.quotation_date + timedelta(days=quotation.validity_days)
     story = [
-        Paragraph("UPVC Pro", styles["Title"]),
-        Paragraph("Windows. Doors. Trust.", styles["Normal"]),
+        _header("Project Quotation", quotation.number, settings, styles),
         Spacer(1, 8),
-        Paragraph(f"Quotation {_text(quotation.number)}", styles["Heading1"]),
-        Paragraph(f"Customer: {_text(quotation.customer.name)}", styles["Normal"]),
-        Paragraph(f"Phone: {_text(quotation.customer.phone)} &nbsp;&nbsp; Email: {_text(quotation.customer.email)}", styles["Normal"]),
-        Paragraph(f"Project/Site: {_text(quotation.site_location or quotation.customer.project_site)}", styles["Normal"]),
-        Paragraph(f"Address: {_text(quotation.address or quotation.customer.address)}", styles["Normal"]),
-        Paragraph(f"Quotation date: {quotation.quotation_date} &nbsp;&nbsp; Validity: {quotation.validity_days} days &nbsp;&nbsp; Valid until: {valid_until}", styles["Normal"]),
-        Paragraph(f"Sales person: {_text(quotation.sales_person)} &nbsp;&nbsp; Status: {_text(quotation.status)}", styles["Normal"]),
-        Spacer(1, 12),
+        _two_cards(
+            _info_card("Client & Site", [
+                ("Customer", quotation.customer.name),
+                ("Phone / Email", f"{quotation.customer.phone} / {quotation.customer.email}"),
+                ("GSTIN", quotation.customer.gst_number or "-"),
+                ("Site", quotation.site_location or quotation.customer.project_site),
+                ("Address", quotation.address or quotation.customer.address),
+            ], styles),
+            _info_card("Quotation Details", [
+                ("Quotation Date", quotation.quotation_date),
+                ("Valid Until", valid_until),
+                ("Sales Person", quotation.sales_person),
+                ("Status", quotation.status),
+            ], styles),
+        ),
+        Spacer(1, 10),
     ]
-    rows = [["#", "Item", "Size", "SFT", "Qty", "Total SFT", "Rate", "Amount"]]
+    rows = [["#", "Product / Specification", "Size", "SFT", "Qty", "Total SFT", "Rate", "Amount"]]
     for i, item in enumerate(quotation.items, 1):
         item_name = _text(f"{item.category} {item.style}".strip())
         material = _text(", ".join(filter(None, [item.profile, item.color, item.track, item.glass, item.glass_color, item.hardware, item.reinforcement, item.mesh])))
         rows.append([
             str(i),
-            Paragraph(f"{item_name}<br/><font size='7'>{material}</font><br/><font size='7'>Location: {_text(item.location)}</font>", styles["BodyText"]),
+            Paragraph(f"<b>{item_name}</b><br/><font size='7' color='#64748b'>{material}</font><br/><font size='7'>Location: {_text(item.location)}</font>", styles["BodySmall"]),
             f"{item.width_mm} x {item.height_mm} mm",
             f"{item.sft}",
             str(item.quantity),
@@ -104,72 +240,62 @@ def build_quotation_pdf(quotation: Quotation) -> bytes:
         ["", "", "", "", "", "", "Advance", _money(quotation.advance)],
         ["", "", "", "", "", "", "Balance", _money(quotation.balance)],
     ])
-    table = Table(rows, colWidths=[8 * mm, 50 * mm, 29 * mm, 16 * mm, 12 * mm, 20 * mm, 24 * mm, 27 * mm])
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eaf2ff")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#17325c")),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d8e1ec")),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 7),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
-        ("BACKGROUND", (6, -7), (-1, -1), colors.HexColor("#f8fafc")),
-        ("FONTNAME", (6, -7), (-1, -1), "Helvetica-Bold"),
-    ]))
+    terms = f"{_business(settings).quotation_terms}\n{quotation.notes or ''}".strip()
     story.extend([
-        table,
-        Spacer(1, 12),
-        Paragraph("Terms: 50% advance with order confirmation, 40% before delivery, and 10% after installation.", styles["Normal"]),
-        Paragraph("Notes: " + _text(quotation.notes or "Prices are subject to final site measurement and approved specifications."), styles["Normal"]),
+        _item_table(rows, [8 * mm, 50 * mm, 29 * mm, 14 * mm, 11 * mm, 19 * mm, 24 * mm, 31 * mm], len(rows) - 7),
+        Spacer(1, 10),
+        _footer_blocks(settings, terms, styles),
     ])
-    doc.build(story)
+    _doc(buffer).build(story)
     return buffer.getvalue()
 
 
-def build_payment_receipt_pdf(payment: Payment) -> bytes:
+def build_payment_receipt_pdf(payment: Payment, settings: BusinessSettings | None = None) -> bytes:
     invoice = payment.invoice
-    paid_to_date = sum((row.amount for row in invoice.payments if row.created_at <= payment.created_at), start=0)
-    balance_after = invoice.grand_total - paid_to_date
+    paid_to_date = sum((Decimal(row.amount or 0) for row in invoice.payments if row.created_at <= payment.created_at), Decimal("0"))
+    balance_after = Decimal(invoice.grand_total or 0) - paid_to_date
 
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=16 * mm, leftMargin=16 * mm, topMargin=14 * mm, bottomMargin=14 * mm)
-    styles = getSampleStyleSheet()
+    styles = _styles()
     story = [
-        Paragraph("UPVC Pro", styles["Title"]),
-        Paragraph("Windows. Doors. Trust.", styles["Normal"]),
+        _header("Payment Receipt", f"Receipt #{payment.id}", settings, styles),
+        Spacer(1, 8),
+        _two_cards(
+            _info_card("Received From", [
+                ("Customer", invoice.customer.name),
+                ("Project/Site", invoice.customer.project_site),
+                ("Invoice", invoice.number),
+                ("Receipt Date", payment.payment_date),
+            ], styles),
+            _info_card("Payment Details", [
+                ("Mode", payment.mode),
+                ("Reference", payment.reference_number or "-"),
+                ("Received By", payment.received_by),
+                ("Amount Received", _money(payment.amount)),
+            ], styles),
+        ),
         Spacer(1, 10),
-        Paragraph(f"Payment Receipt #{payment.id}", styles["Heading1"]),
-        Paragraph(f"Invoice: {_text(invoice.number)}", styles["Normal"]),
-        Paragraph(f"Customer: {_text(invoice.customer.name)}", styles["Normal"]),
-        Paragraph(f"Project/Site: {_text(invoice.customer.project_site)}", styles["Normal"]),
-        Paragraph(f"Receipt date: {payment.payment_date} &nbsp;&nbsp; Recorded on: {payment.created_at.strftime('%Y-%m-%d %H:%M')}", styles["Normal"]),
-        Spacer(1, 12),
     ]
     rows = [
-        ["Payment Mode", _text(payment.mode)],
-        ["Reference Number", _text(payment.reference_number or "-")],
-        ["Received By", _text(payment.received_by)],
-        ["Amount Received", _money(payment.amount)],
         ["Invoice Total", _money(invoice.grand_total)],
         ["Paid To Date", _money(paid_to_date)],
         ["Balance After This Payment", _money(balance_after)],
     ]
-    table = Table(rows, colWidths=[58 * mm, 112 * mm])
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#eaf2ff")),
-        ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#17325c")),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d8e1ec")),
+    summary = Table(rows, colWidths=[96 * mm, 90 * mm])
+    summary.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), SOFT),
+        ("BOX", (0, 0), (-1, -1), 0.6, BORDER),
+        ("INNERGRID", (0, 0), (-1, -1), 0.35, BORDER),
         ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN", (1, 3), (1, -1), "RIGHT"),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
     ]))
     story.extend([
-        table,
+        summary,
         Spacer(1, 12),
-        Paragraph("Notes: " + _text(payment.notes or "Payment received with thanks."), styles["Normal"]),
-        Spacer(1, 18),
-        Paragraph("This is a system-generated receipt.", styles["Italic"]),
+        _footer_blocks(settings, f"{_business(settings).payment_terms}\n{payment.notes or ''}".strip(), styles),
     ])
-    doc.build(story)
+    _doc(buffer).build(story)
     return buffer.getvalue()

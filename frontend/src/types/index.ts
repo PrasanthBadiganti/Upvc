@@ -164,6 +164,26 @@ export type PricingRule = {
   discount_above_300: number | string;
 };
 
+export type BusinessSettings = {
+  id: number;
+  company_name: string;
+  tagline: string;
+  phone: string;
+  email: string;
+  address: string;
+  gst_number: string;
+  logo_text: string;
+  bank_name: string;
+  account_name: string;
+  account_number: string;
+  ifsc: string;
+  upi_id: string;
+  quotation_terms: string;
+  invoice_terms: string;
+  payment_terms: string;
+  updated_at: string;
+};
+
 export type CustomerTimelineItem = {
   type: string;
   title: string;

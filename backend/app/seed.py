@@ -13,6 +13,7 @@ from .services import convert_quotation_to_invoice, create_quotation, record_pay
 
 def seed_database(db: Session) -> None:
     if db.scalar(select(models.Customer.id).limit(1)) is not None:
+        ensure_business_settings(db)
         backfill_customer_details(db)
         backfill_catalog_details(db)
         return
@@ -40,6 +41,7 @@ def seed_database(db: Session) -> None:
     ]
     db.add_all(catalog)
     db.add(models.PricingRule(id=1))
+    db.add(models.BusinessSettings(id=1))
     db.commit()
 
     quote = create_quotation(
@@ -91,6 +93,13 @@ def seed_database(db: Session) -> None:
     db.commit()
     backfill_customer_details(db)
     backfill_catalog_details(db)
+    ensure_business_settings(db)
+
+
+def ensure_business_settings(db: Session) -> None:
+    if not db.get(models.BusinessSettings, 1):
+        db.add(models.BusinessSettings(id=1))
+        db.commit()
 
 
 def backfill_customer_details(db: Session) -> None:
