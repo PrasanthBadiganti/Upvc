@@ -1,7 +1,10 @@
+import csv
+import io
 import os
+import xml.etree.ElementTree as ET
 from decimal import Decimal
-from io import BytesIO
 from pathlib import Path
+from io import BytesIO
 
 DB_FILE = Path(__file__).resolve().parents[1] / "test_upvc.db"
 if DB_FILE.exists():
@@ -945,3 +948,121 @@ def test_trial_balance_is_balanced():
         total_debit = sum(Decimal(r["debit"]) for r in rows)
         total_credit = sum(Decimal(r["credit"]) for r in rows)
         assert total_debit == total_credit
+
+
+PERIOD = {"from_date": "2026-01-01", "to_date": "2026-12-31"}
+
+
+def test_gstr1_report_b2b_and_hsn():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client, hsn_code="3925.20.00")
+        gstr1 = client.get("/api/gst/gstr1", params=PERIOD)
+        assert gstr1.status_code == 200, gstr1.text
+        data = gstr1.json()
+        b2b_row = next((r for r in data["b2b"] if r["invoice_number"] == invoice["number"]), None)
+        assert b2b_row is not None, data["b2b"]
+        assert Decimal(str(b2b_row["cgst"])) == Decimal(invoice["cgst"])
+        assert Decimal(str(b2b_row["sgst"])) == Decimal(invoice["sgst"])
+        hsn_row = next((r for r in data["hsn_summary"] if r["hsn_code"] == "3925.20.00"), None)
+        assert hsn_row is not None, data["hsn_summary"]
+        assert hsn_row["taxable_value"] > 0
+
+
+def test_gstr3b_report_reflects_ledger():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client)
+        vendor = _create_vendor(client, name="GSTR3B Vendor")
+        _create_purchase_bill(client, vendor["id"])
+
+        gstr3b = client.get("/api/gst/gstr3b", params=PERIOD)
+        assert gstr3b.status_code == 200, gstr3b.text
+        data = gstr3b.json()
+        assert data["outward_taxable_supplies"]["cgst"] >= float(invoice["cgst"])
+        assert data["eligible_itc"]["total_itc"] > 0
+        expected_net_cgst = max(0.0, data["outward_taxable_supplies"]["cgst"] - data["eligible_itc"]["cgst"])
+        assert abs(data["net_tax_payable"]["cgst"] - expected_net_cgst) < 0.01
+
+
+def test_hsn_summary_nets_credit_note():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client, hsn_code="7005.29.00")
+        before = client.get("/api/gst/hsn-summary", params=PERIOD).json()
+        before_row = next(r for r in before if r["hsn_code"] == "7005.29.00")
+
+        client.post(f"/api/invoices/{invoice['id']}/credit-notes", json={
+            "note_date": "2026-07-15", "reason": "Return",
+            "items": [{"description": "x", "hsn_code": "7005.29.00", "quantity": "1", "rate": "1000", "gst_percent": "18"}],
+        })
+        after = client.get("/api/gst/hsn-summary", params=PERIOD).json()
+        after_row = next(r for r in after if r["hsn_code"] == "7005.29.00")
+        assert after_row["taxable_value"] == before_row["taxable_value"] - 1000
+
+
+def test_sales_and_purchase_register_csv():
+    with TestClient(app) as client:
+        _create_paid_invoice(client)
+        vendor = _create_vendor(client, name="Register CSV Vendor")
+        _create_purchase_bill(client, vendor["id"])
+
+        sales_csv = client.get("/api/gst/sales-register/csv", params=PERIOD)
+        assert sales_csv.status_code == 200, sales_csv.text
+        assert sales_csv.headers["content-type"].startswith("text/csv")
+        sales_rows = list(csv.DictReader(io.StringIO(sales_csv.text)))
+        assert sales_rows
+
+        purchase_csv = client.get("/api/gst/purchase-register/csv", params=PERIOD)
+        assert purchase_csv.status_code == 200, purchase_csv.text
+        purchase_rows = list(csv.DictReader(io.StringIO(purchase_csv.text)))
+        assert purchase_rows
+
+
+def test_profit_and_loss_and_balance_sheet():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client)
+        client.post(f"/api/invoices/{invoice['id']}/payments", json={
+            "payment_date": "2026-07-16", "mode": "UPI", "reference_number": "PNL1", "amount": "3000", "received_by": "Admin", "notes": "",
+        })
+        client.post("/api/expenses", json={
+            "expense_date": "2026-07-16", "category": "Rent", "description": "Office rent",
+            "amount": "1000", "gst_percent": "0", "vendor_id": None, "mode": "Cash", "reference_number": "", "notes": "",
+        })
+
+        pnl = client.get("/api/profit-and-loss", params=PERIOD)
+        assert pnl.status_code == 200, pnl.text
+        pnl_data = pnl.json()
+        assert pnl_data["total_income"] > 0
+        assert pnl_data["total_expense"] > 0
+        assert abs(pnl_data["net_profit"] - (pnl_data["total_income"] - pnl_data["total_expense"])) < 0.01
+
+        bs = client.get("/api/balance-sheet", params={"as_of": "2026-12-31"})
+        assert bs.status_code == 200, bs.text
+        bs_data = bs.json()
+        assert bs_data["balanced"] is True
+        assert abs(bs_data["total_assets"] - (bs_data["total_liabilities"] + bs_data["total_equity"])) < 0.01
+
+
+def test_tally_export_masters_and_vouchers_are_well_formed():
+    with TestClient(app) as client:
+        _create_paid_invoice(client)
+        vendor = _create_vendor(client, name="Tally Vendor")
+        _create_purchase_bill(client, vendor["id"])
+
+        masters = client.get("/api/tally/export/masters")
+        assert masters.status_code == 200, masters.text
+        assert masters.headers["content-type"].startswith("application/xml")
+        masters_root = ET.fromstring(masters.content)
+        ledger_names = {ledger.get("NAME") for ledger in masters_root.iter("LEDGER")}
+        assert "Cash" in ledger_names
+        assert "Sales Revenue" in ledger_names
+        assert any("Tally Vendor" in name for name in ledger_names)
+
+        vouchers = client.get("/api/tally/export/vouchers", params=PERIOD)
+        assert vouchers.status_code == 200, vouchers.text
+        vouchers_root = ET.fromstring(vouchers.content)
+        voucher_elements = list(vouchers_root.iter("VOUCHER"))
+        assert voucher_elements
+        for voucher in voucher_elements:
+            total = Decimal("0")
+            for entry in voucher.findall("ALLLEDGERENTRIES.LIST"):
+                total += Decimal(entry.findtext("AMOUNT"))
+            assert total == Decimal("0.00"), ET.tostring(voucher, encoding="unicode")

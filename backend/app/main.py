@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import csv
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from io import BytesIO
+from io import BytesIO, StringIO
 import os
 from pathlib import Path
 import sys
@@ -17,9 +18,11 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from . import models, schemas
 from .database import Base, DEFAULT_DB_PATH, SessionLocal, engine, get_db
+from .gst_reports import balance_sheet_report, gstr1_report, gstr3b_report, hsn_summary_report, profit_and_loss_report, purchase_register, sales_register
 from .pdf import build_credit_note_pdf, build_debit_note_pdf, build_invoice_pdf, build_payment_receipt_pdf, build_purchase_bill_pdf, build_quotation_pdf
 from .seed import seed_database
 from .services import cancel_credit_note, cancel_debit_note, cancel_invoice, cancel_purchase_bill, convert_quotation_to_invoice, create_expense, create_purchase_bill, create_quotation, delete_expense, duplicate_quotation, get_account_ledger, get_credit_note, get_debit_note, get_expense, get_invoice, get_journal_entry, get_payment, get_purchase_bill, get_quotation, get_trial_balance, issue_credit_note, issue_debit_note, list_chart_of_accounts, list_journal_entries, money, next_code, record_payment, record_vendor_payment, reopen_invoice, reopen_purchase_bill, update_expense, update_quotation
+from .tally_export import build_tally_masters_xml, build_tally_vouchers_xml
 
 app = FastAPI(title="UPVC Pro API", version="1.0.0")
 app.add_middleware(
@@ -856,6 +859,77 @@ def read_journal_entry(journal_entry_id: int, db: Session = Depends(get_db)):
 @app.get("/api/trial-balance", response_model=list[schemas.TrialBalanceRow])
 def trial_balance(db: Session = Depends(get_db)):
     return get_trial_balance(db)
+
+
+def _csv_response(rows: list[dict], filename: str) -> StreamingResponse:
+    buffer = StringIO()
+    fieldnames = list(rows[0].keys()) if rows else []
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+    return StreamingResponse(iter([buffer.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@app.get("/api/gst/gstr1")
+def gstr1(from_date: date = Query(...), to_date: date = Query(...), db: Session = Depends(get_db)):
+    return gstr1_report(db, from_date, to_date)
+
+
+@app.get("/api/gst/gstr3b")
+def gstr3b(from_date: date = Query(...), to_date: date = Query(...), db: Session = Depends(get_db)):
+    return gstr3b_report(db, from_date, to_date)
+
+
+@app.get("/api/gst/hsn-summary")
+def hsn_summary(from_date: date = Query(...), to_date: date = Query(...), db: Session = Depends(get_db)):
+    return hsn_summary_report(db, from_date, to_date)
+
+
+@app.get("/api/gst/hsn-summary/csv")
+def hsn_summary_csv(from_date: date = Query(...), to_date: date = Query(...), db: Session = Depends(get_db)):
+    return _csv_response(hsn_summary_report(db, from_date, to_date), f"hsn-summary-{from_date}-to-{to_date}.csv")
+
+
+@app.get("/api/gst/sales-register")
+def sales_register_endpoint(from_date: date = Query(...), to_date: date = Query(...), db: Session = Depends(get_db)):
+    return sales_register(db, from_date, to_date)
+
+
+@app.get("/api/gst/sales-register/csv")
+def sales_register_csv(from_date: date = Query(...), to_date: date = Query(...), db: Session = Depends(get_db)):
+    return _csv_response(sales_register(db, from_date, to_date), f"sales-register-{from_date}-to-{to_date}.csv")
+
+
+@app.get("/api/gst/purchase-register")
+def purchase_register_endpoint(from_date: date = Query(...), to_date: date = Query(...), db: Session = Depends(get_db)):
+    return purchase_register(db, from_date, to_date)
+
+
+@app.get("/api/gst/purchase-register/csv")
+def purchase_register_csv(from_date: date = Query(...), to_date: date = Query(...), db: Session = Depends(get_db)):
+    return _csv_response(purchase_register(db, from_date, to_date), f"purchase-register-{from_date}-to-{to_date}.csv")
+
+
+@app.get("/api/profit-and-loss")
+def profit_and_loss(from_date: date = Query(...), to_date: date = Query(...), db: Session = Depends(get_db)):
+    return profit_and_loss_report(db, from_date, to_date)
+
+
+@app.get("/api/balance-sheet")
+def balance_sheet(as_of: date = Query(...), db: Session = Depends(get_db)):
+    return balance_sheet_report(db, as_of)
+
+
+@app.get("/api/tally/export/masters")
+def tally_export_masters(db: Session = Depends(get_db)):
+    data = build_tally_masters_xml(db)
+    return StreamingResponse(BytesIO(data), media_type="application/xml", headers={"Content-Disposition": 'attachment; filename="tally-masters.xml"'})
+
+
+@app.get("/api/tally/export/vouchers")
+def tally_export_vouchers(from_date: date = Query(...), to_date: date = Query(...), db: Session = Depends(get_db)):
+    data = build_tally_vouchers_xml(db, from_date, to_date)
+    return StreamingResponse(BytesIO(data), media_type="application/xml", headers={"Content-Disposition": f'attachment; filename="tally-vouchers-{from_date}-to-{to_date}.xml"'})
 
 
 @app.get("/api/followups", response_model=list[schemas.FollowupRead])
