@@ -13,7 +13,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .database import DEFAULT_DB_PATH
-from .models import BusinessSettings, Invoice, Payment, Quotation
+from .models import BusinessSettings, CreditNote, DebitNote, Invoice, Payment, PurchaseBill, Quotation
 
 NAVY = colors.HexColor("#12314f")
 BLUE = colors.HexColor("#2563eb")
@@ -197,21 +197,63 @@ def build_invoice_pdf(invoice: Invoice, settings: BusinessSettings | None = None
         ),
         Spacer(1, 10),
     ]
-    rows = [["#", "Description", "Category", "Qty", "Rate", "GST", "Amount"]]
+    rows = [["#", "Description", "HSN", "Category", "Qty", "Rate", "GST", "Amount"]]
     for i, item in enumerate(invoice.items, 1):
-        rows.append([str(i), Paragraph(_text(item.description), styles["BodySmall"]), item.category, f"{item.quantity}", _money(item.rate), f"{item.gst_percent}%", _money(item.amount)])
+        rows.append([str(i), Paragraph(_text(item.description), styles["BodySmall"]), item.hsn_code or "-", item.category, f"{item.quantity}", _money(item.rate), f"{item.gst_percent}%", _money(item.amount)])
     rows.extend([
-        ["", "", "", "", "", "Subtotal", _money(invoice.subtotal)],
-        ["", "", "", "", "", "CGST", _money(invoice.cgst)],
-        ["", "", "", "", "", "SGST", _money(invoice.sgst)],
-        ["", "", "", "", "", "Grand Total", _money(invoice.grand_total)],
-        ["", "", "", "", "", "Paid", _money(invoice.paid_amount)],
-        ["", "", "", "", "", "Balance", _money(invoice.pending_balance)],
+        ["", "", "", "", "", "", "Subtotal", _money(invoice.subtotal)],
+        ["", "", "", "", "", "", "CGST", _money(invoice.cgst)],
+        ["", "", "", "", "", "", "SGST", _money(invoice.sgst)],
+        ["", "", "", "", "", "", "Grand Total", _money(invoice.grand_total)],
+        ["", "", "", "", "", "", "Paid", _money(invoice.paid_amount)],
+        ["", "", "", "", "", "", "Balance", _money(invoice.pending_balance)],
     ])
     story.extend([
-        _item_table(rows, [9 * mm, 58 * mm, 24 * mm, 16 * mm, 25 * mm, 22 * mm, 32 * mm], len(rows) - 6),
+        _item_table(rows, [8 * mm, 50 * mm, 16 * mm, 20 * mm, 14 * mm, 24 * mm, 20 * mm, 34 * mm], len(rows) - 6),
         Spacer(1, 10),
         _footer_blocks(settings, _business(settings).invoice_terms, styles),
+    ])
+    _doc(buffer).build(story)
+    return buffer.getvalue()
+
+
+def build_purchase_bill_pdf(bill: PurchaseBill, settings: BusinessSettings | None = None) -> bytes:
+    buffer = BytesIO()
+    styles = _styles()
+    story = [
+        _header("Purchase Bill", bill.number, settings, styles),
+        Spacer(1, 8),
+        _two_cards(
+            _info_card("Vendor", [
+                ("Vendor", bill.vendor.name),
+                ("GSTIN", bill.vendor.gst_number or "-"),
+                ("Address", bill.vendor.address),
+                ("Phone", bill.vendor.phone),
+            ], styles),
+            _info_card("Bill Details", [
+                ("Vendor Bill No.", bill.vendor_bill_number or "-"),
+                ("Bill Date", bill.bill_date),
+                ("Due Date", bill.due_date),
+                ("Status", bill.status),
+            ], styles),
+        ),
+        Spacer(1, 10),
+    ]
+    rows = [["#", "Description", "HSN", "Category", "Qty", "Rate", "GST", "Amount"]]
+    for i, item in enumerate(bill.items, 1):
+        rows.append([str(i), Paragraph(_text(item.description), styles["BodySmall"]), item.hsn_code or "-", item.category, f"{item.quantity}", _money(item.rate), f"{item.gst_percent}%", _money(item.amount)])
+    rows.extend([
+        ["", "", "", "", "", "", "Subtotal", _money(bill.subtotal)],
+        ["", "", "", "", "", "", "CGST", _money(bill.cgst)],
+        ["", "", "", "", "", "", "SGST", _money(bill.sgst)],
+        ["", "", "", "", "", "", "Grand Total", _money(bill.grand_total)],
+        ["", "", "", "", "", "", "Paid", _money(bill.paid_amount)],
+        ["", "", "", "", "", "", "Balance", _money(bill.pending_balance)],
+    ])
+    story.extend([
+        _item_table(rows, [8 * mm, 50 * mm, 16 * mm, 20 * mm, 14 * mm, 24 * mm, 20 * mm, 34 * mm], len(rows) - 6),
+        Spacer(1, 10),
+        _footer_blocks(settings, "Purchase bill recorded for internal accounts payable tracking.", styles),
     ])
     _doc(buffer).build(story)
     return buffer.getvalue()
@@ -241,13 +283,14 @@ def build_quotation_pdf(quotation: Quotation, settings: BusinessSettings | None 
         ),
         Spacer(1, 10),
     ]
-    rows = [["#", "Product / Specification", "Size", "SFT", "Qty", "Total SFT", "Rate", "Amount"]]
+    rows = [["#", "Product / Specification", "HSN", "Size", "SFT", "Qty", "Total SFT", "Rate", "Amount"]]
     for i, item in enumerate(quotation.items, 1):
         item_name = _text(f"{item.category} {item.style}".strip())
         material = _text(", ".join(filter(None, [item.profile, item.color, item.track, item.glass, item.glass_color, item.hardware, item.reinforcement, item.mesh])))
         rows.append([
             str(i),
             Paragraph(f"<b>{item_name}</b><br/><font size='7' color='#64748b'>{material}</font><br/><font size='7'>Location: {_text(item.location)}</font>", styles["BodySmall"]),
+            item.hsn_code or "-",
             f"{item.width_mm} x {item.height_mm} mm",
             f"{item.sft}",
             str(item.quantity),
@@ -256,17 +299,17 @@ def build_quotation_pdf(quotation: Quotation, settings: BusinessSettings | None 
             _money(item.amount),
         ])
     rows.extend([
-        ["", "", "", "", "", "", "Subtotal", _money(quotation.subtotal)],
-        ["", "", "", "", "", "", "Transport", _money(quotation.transport)],
-        ["", "", "", "", "", "", "Discount", _money(quotation.discount)],
-        ["", "", "", "", "", "", "GST", _money(quotation.gst)],
-        ["", "", "", "", "", "", "Grand Total", _money(quotation.grand_total)],
-        ["", "", "", "", "", "", "Advance", _money(quotation.advance)],
-        ["", "", "", "", "", "", "Balance", _money(quotation.balance)],
+        ["", "", "", "", "", "", "", "Subtotal", _money(quotation.subtotal)],
+        ["", "", "", "", "", "", "", "Transport", _money(quotation.transport)],
+        ["", "", "", "", "", "", "", "Discount", _money(quotation.discount)],
+        ["", "", "", "", "", "", "", "GST", _money(quotation.gst)],
+        ["", "", "", "", "", "", "", "Grand Total", _money(quotation.grand_total)],
+        ["", "", "", "", "", "", "", "Advance", _money(quotation.advance)],
+        ["", "", "", "", "", "", "", "Balance", _money(quotation.balance)],
     ])
     terms = f"{_business(settings).quotation_terms}\n{quotation.notes or ''}".strip()
     story.extend([
-        _item_table(rows, [8 * mm, 50 * mm, 29 * mm, 14 * mm, 11 * mm, 19 * mm, 24 * mm, 31 * mm], len(rows) - 7),
+        _item_table(rows, [8 * mm, 42 * mm, 14 * mm, 25 * mm, 12 * mm, 10 * mm, 17 * mm, 22 * mm, 36 * mm], len(rows) - 7),
         Spacer(1, 10),
         _footer_blocks(settings, terms, styles),
     ])
@@ -323,3 +366,51 @@ def build_payment_receipt_pdf(payment: Payment, settings: BusinessSettings | Non
     ])
     _doc(buffer).build(story)
     return buffer.getvalue()
+
+
+def _build_note_pdf(document_title: str, note: CreditNote | DebitNote, settings: BusinessSettings | None) -> bytes:
+    invoice = note.invoice
+    buffer = BytesIO()
+    styles = _styles()
+    story = [
+        _header(document_title, note.number, settings, styles),
+        Spacer(1, 8),
+        _two_cards(
+            _info_card("Bill To", [
+                ("Customer", note.customer.name),
+                ("GSTIN", note.customer.gst_number or "-"),
+                ("Address", note.customer.address),
+                ("Project/Site", note.customer.project_site),
+            ], styles),
+            _info_card("Reference", [
+                ("Against Invoice", invoice.number),
+                ("Invoice Date", invoice.invoice_date),
+                ("Note Date", note.note_date),
+                ("Reason", note.reason or "-"),
+            ], styles),
+        ),
+        Spacer(1, 10),
+    ]
+    rows = [["#", "Description", "HSN", "Category", "Qty", "Rate", "GST", "Amount"]]
+    for i, item in enumerate(note.items, 1):
+        rows.append([str(i), Paragraph(_text(item.description), styles["BodySmall"]), item.hsn_code or "-", item.category, f"{item.quantity}", _money(item.rate), f"{item.gst_percent}%", _money(item.amount)])
+    rows.extend([
+        ["", "", "", "", "", "", "Subtotal", _money(note.subtotal)],
+        ["", "", "", "", "", "", "GST", _money(note.gst)],
+        ["", "", "", "", "", "", "Grand Total", _money(note.grand_total)],
+    ])
+    story.extend([
+        _item_table(rows, [8 * mm, 50 * mm, 16 * mm, 20 * mm, 14 * mm, 24 * mm, 20 * mm, 34 * mm], len(rows) - 3),
+        Spacer(1, 10),
+        _footer_blocks(settings, _business(settings).invoice_terms, styles),
+    ])
+    _doc(buffer).build(story)
+    return buffer.getvalue()
+
+
+def build_credit_note_pdf(credit_note: CreditNote, settings: BusinessSettings | None = None) -> bytes:
+    return _build_note_pdf("Credit Note", credit_note, settings)
+
+
+def build_debit_note_pdf(debit_note: DebitNote, settings: BusinessSettings | None = None) -> bytes:
+    return _build_note_pdf("Debit Note", debit_note, settings)

@@ -68,7 +68,7 @@ export default function CreateQuotation() {
   const update = (index:number,key:keyof QuotationItem,value:string|number) => {
     setItems(prev=>prev.map((row,i)=>{
       if(i!==index) return row;
-      const stringFields = ['category','style','location','profile','color','track','glass','glass_color','hardware','reinforcement','mesh'];
+      const stringFields = ['category','style','location','profile','color','track','glass','glass_color','hardware','reinforcement','mesh','hsn_code'];
       const next={...row,[key]: typeof value==='string' && stringFields.includes(String(key)) ? value : Number(value)} as QuotationItem;
       if(['width_mm','height_mm'].includes(String(key))) next.sft = Math.max(0, Number(((next.width_mm/304.8)*(next.height_mm/304.8)).toFixed(2)));
       const selectedCatalog = catalog.find(item => item.id === next.catalog_item_id);
@@ -94,6 +94,7 @@ export default function CreateQuotation() {
         total_sft: totalSft,
         rate_per_sft: Number(selectedItem.rate_per_sft),
         amount: Number((totalSft*Number(selectedItem.rate_per_sft)).toFixed(2)),
+        hsn_code: selectedItem.hsn_code,
         profile: selectedItem.profile,
         color: selectedItem.color,
         track: selectedItem.track,
@@ -139,10 +140,11 @@ export default function CreateQuotation() {
 
         <Card className="quote-items-card">
           <div className="quote-items-toolbar"><h3>Quotation Items</h3><div className="quote-items-actions"><Button tone="secondary"><FileDown size={15}/> Import from Excel</Button><Button onClick={()=>setItems([...items,emptyItem()])}><Plus size={15}/> Add Item</Button></div></div>
-          <div className="table-wrap"><table className="data-table editable-table"><thead><tr><th>S.No</th><th>Price Master</th><th>Category</th><th>Style</th><th>Width (mm)</th><th>Height (mm)</th><th>SFT</th><th>Qty</th><th>Total SFT</th><th>Rate / SFT (Rs.)</th><th>Amount (Rs.)</th><th>Location</th><th>Action</th></tr></thead><tbody>{items.map((row,i)=><tr key={i}>
+          <div className="table-wrap"><table className="data-table editable-table"><thead><tr><th>S.No</th><th>Price Master</th><th>Category</th><th>Style</th><th>HSN</th><th>Width (mm)</th><th>Height (mm)</th><th>SFT</th><th>Qty</th><th>Total SFT</th><th>Rate / SFT (Rs.)</th><th>Amount (Rs.)</th><th>Location</th><th>Action</th></tr></thead><tbody>{items.map((row,i)=><tr key={i}>
             <td>{i+1}</td>
             <td><select value={row.catalog_item_id || ''} onChange={e=>applyCatalog(i,Number(e.target.value))}><option value="">Manual</option>{catalog.map(item=><option key={item.id} value={item.id}>{item.name} - {currency(item.rate_per_sft)}</option>)}</select></td>
             <td><input value={row.category} onChange={e=>update(i,'category',e.target.value)}/></td><td><input value={row.style} onChange={e=>update(i,'style',e.target.value)}/></td>
+            <td><input value={row.hsn_code||''} onChange={e=>update(i,'hsn_code',e.target.value)}/></td>
             <td><input type="number" value={row.width_mm} onChange={e=>update(i,'width_mm',e.target.value)}/></td><td><input type="number" value={row.height_mm} onChange={e=>update(i,'height_mm',e.target.value)}/></td>
             <td><input type="number" value={row.sft} onChange={e=>update(i,'sft',e.target.value)}/></td><td><input type="number" value={row.quantity} onChange={e=>update(i,'quantity',e.target.value)}/></td>
             <td>{row.total_sft.toFixed(2)}</td><td><input type="number" value={row.rate_per_sft} onChange={e=>update(i,'rate_per_sft',e.target.value)}/></td><td className="amount">{currency(row.amount,2)}</td>

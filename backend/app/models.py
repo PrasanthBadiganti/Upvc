@@ -54,6 +54,7 @@ class CatalogItem(Base):
     reinforcement: Mapped[str] = mapped_column(String(120), default="")
     mesh: Mapped[str] = mapped_column(String(120), default="")
     color: Mapped[str] = mapped_column(String(80), default="White")
+    hsn_code: Mapped[str] = mapped_column(String(20), default="")
     min_billable_sft: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=5)
     rate_per_sft: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     gst_percent: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=18)
@@ -145,6 +146,7 @@ class QuotationItem(Base):
     total_sft: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
     rate_per_sft: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    hsn_code: Mapped[str] = mapped_column(String(20), default="")
     location: Mapped[str] = mapped_column(String(120), default="")
     profile: Mapped[str] = mapped_column(String(120), default="")
     color: Mapped[str] = mapped_column(String(80), default="")
@@ -194,8 +196,83 @@ class InvoiceItem(Base):
     rate: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     gst_percent: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=18)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    hsn_code: Mapped[str] = mapped_column(String(20), default="")
 
     invoice: Mapped[Invoice] = relationship(back_populates="items")
+
+
+class CreditNote(Base):
+    __tablename__ = "credit_notes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), index=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
+    note_date: Mapped[date] = mapped_column(Date, default=date.today)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(30), default="Issued", index=True)
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    gst: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    grand_total: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    invoice: Mapped[Invoice] = relationship()
+    customer: Mapped[Customer] = relationship()
+    items: Mapped[list["CreditNoteItem"]] = relationship(back_populates="credit_note", cascade="all, delete-orphan")
+
+
+class CreditNoteItem(Base):
+    __tablename__ = "credit_note_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    credit_note_id: Mapped[int] = mapped_column(ForeignKey("credit_notes.id"), index=True)
+    description: Mapped[str] = mapped_column(String(240))
+    category: Mapped[str] = mapped_column(String(100), default="")
+    hsn_code: Mapped[str] = mapped_column(String(20), default="")
+    unit: Mapped[str] = mapped_column(String(30), default="Sq. Ft.")
+    quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=1)
+    rate: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    gst_percent: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=18)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+
+    credit_note: Mapped[CreditNote] = relationship(back_populates="items")
+
+
+class DebitNote(Base):
+    __tablename__ = "debit_notes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), index=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
+    note_date: Mapped[date] = mapped_column(Date, default=date.today)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(30), default="Issued", index=True)
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    gst: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    grand_total: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    invoice: Mapped[Invoice] = relationship()
+    customer: Mapped[Customer] = relationship()
+    items: Mapped[list["DebitNoteItem"]] = relationship(back_populates="debit_note", cascade="all, delete-orphan")
+
+
+class DebitNoteItem(Base):
+    __tablename__ = "debit_note_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    debit_note_id: Mapped[int] = mapped_column(ForeignKey("debit_notes.id"), index=True)
+    description: Mapped[str] = mapped_column(String(240))
+    category: Mapped[str] = mapped_column(String(100), default="")
+    hsn_code: Mapped[str] = mapped_column(String(20), default="")
+    unit: Mapped[str] = mapped_column(String(30), default="Sq. Ft.")
+    quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=1)
+    rate: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    gst_percent: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=18)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+
+    debit_note: Mapped[DebitNote] = relationship(back_populates="items")
 
 
 class Payment(Base):
@@ -230,3 +307,138 @@ class Followup(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     customer: Mapped[Customer] = relationship(back_populates="followups")
+
+
+class Vendor(Base):
+    __tablename__ = "vendors"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(30), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(160), index=True)
+    phone: Mapped[str] = mapped_column(String(30), default="")
+    email: Mapped[str] = mapped_column(String(160), default="")
+    address: Mapped[str] = mapped_column(Text, default="")
+    gst_number: Mapped[str] = mapped_column(String(40), default="")
+    status: Mapped[str] = mapped_column(String(40), default="Active", index=True)
+    pending_payment: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    purchase_bills: Mapped[list["PurchaseBill"]] = relationship(back_populates="vendor", cascade="all, delete-orphan")
+    expenses: Mapped[list["Expense"]] = relationship(back_populates="vendor")
+
+
+class PurchaseBill(Base):
+    __tablename__ = "purchase_bills"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    vendor_id: Mapped[int] = mapped_column(ForeignKey("vendors.id"), index=True)
+    vendor_bill_number: Mapped[str] = mapped_column(String(60), default="")
+    bill_date: Mapped[date] = mapped_column(Date, default=date.today)
+    due_date: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(40), default="Unpaid", index=True)
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    cgst: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    sgst: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    grand_total: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    paid_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    pending_balance: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    vendor: Mapped[Vendor] = relationship(back_populates="purchase_bills")
+    items: Mapped[list["PurchaseBillItem"]] = relationship(back_populates="purchase_bill", cascade="all, delete-orphan")
+    payments: Mapped[list["VendorPayment"]] = relationship(back_populates="purchase_bill", cascade="all, delete-orphan")
+
+
+class PurchaseBillItem(Base):
+    __tablename__ = "purchase_bill_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    purchase_bill_id: Mapped[int] = mapped_column(ForeignKey("purchase_bills.id"), index=True)
+    description: Mapped[str] = mapped_column(String(240))
+    category: Mapped[str] = mapped_column(String(100), default="")
+    hsn_code: Mapped[str] = mapped_column(String(20), default="")
+    unit: Mapped[str] = mapped_column(String(30), default="Nos")
+    quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=1)
+    rate: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    gst_percent: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=18)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+
+    purchase_bill: Mapped[PurchaseBill] = relationship(back_populates="items")
+
+
+class VendorPayment(Base):
+    __tablename__ = "vendor_payments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    purchase_bill_id: Mapped[int] = mapped_column(ForeignKey("purchase_bills.id"), index=True)
+    payment_date: Mapped[date] = mapped_column(Date, default=date.today)
+    mode: Mapped[str] = mapped_column(String(50), default="NEFT")
+    reference_number: Mapped[str] = mapped_column(String(120), default="")
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    paid_by: Mapped[str] = mapped_column(String(120), default="Arun Verma")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    purchase_bill: Mapped[PurchaseBill] = relationship(back_populates="payments")
+
+
+class Expense(Base):
+    __tablename__ = "expenses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    expense_date: Mapped[date] = mapped_column(Date, default=date.today)
+    category: Mapped[str] = mapped_column(String(60), default="Other")
+    description: Mapped[str] = mapped_column(String(240), default="")
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    gst_percent: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=0)
+    gst_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    total: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    vendor_id: Mapped[int | None] = mapped_column(ForeignKey("vendors.id"), nullable=True, index=True)
+    mode: Mapped[str] = mapped_column(String(50), default="Cash")
+    reference_number: Mapped[str] = mapped_column(String(120), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    vendor: Mapped[Vendor | None] = relationship(back_populates="expenses")
+
+
+class ChartOfAccount(Base):
+    __tablename__ = "chart_of_accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    account_type: Mapped[str] = mapped_column(String(30), index=True)
+    account_group: Mapped[str] = mapped_column(String(80), default="")
+    status: Mapped[str] = mapped_column(String(30), default="Active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class JournalEntry(Base):
+    __tablename__ = "journal_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    entry_date: Mapped[date] = mapped_column(Date, default=date.today, index=True)
+    narration: Mapped[str] = mapped_column(String(240), default="")
+    source_type: Mapped[str] = mapped_column(String(40), index=True)
+    source_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    lines: Mapped[list["JournalLine"]] = relationship(back_populates="entry", cascade="all, delete-orphan")
+
+
+class JournalLine(Base):
+    __tablename__ = "journal_lines"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    journal_entry_id: Mapped[int] = mapped_column(ForeignKey("journal_entries.id"), index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("chart_of_accounts.id"), index=True)
+    debit: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    credit: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+
+    entry: Mapped[JournalEntry] = relationship(back_populates="lines")
+    account: Mapped[ChartOfAccount] = relationship()

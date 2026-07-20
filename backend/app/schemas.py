@@ -54,6 +54,7 @@ class CatalogItemBase(BaseModel):
     reinforcement: str = ""
     mesh: str = ""
     color: str = "White"
+    hsn_code: str = ""
     min_billable_sft: Decimal = Decimal("5")
     rate_per_sft: Decimal = Decimal("0")
     gst_percent: Decimal = Decimal("18")
@@ -120,6 +121,7 @@ class QuotationItemPayload(BaseModel):
     total_sft: Decimal = Decimal("0")
     rate_per_sft: Decimal = Decimal("0")
     amount: Decimal = Decimal("0")
+    hsn_code: str = ""
     location: str = ""
     profile: str = ""
     color: str = ""
@@ -185,6 +187,7 @@ class InvoiceItemRead(ORMModel):
     rate: Decimal
     gst_percent: Decimal
     amount: Decimal
+    hsn_code: str
 
 
 class PaymentCreate(BaseModel):
@@ -221,6 +224,252 @@ class InvoiceRead(ORMModel):
     payments: list[PaymentRead]
     customer: CustomerRead
     quotation: QuotationRead | None = None
+
+
+class InvoiceSummaryRead(ORMModel):
+    id: int
+    number: str
+    invoice_date: date
+    grand_total: Decimal
+    pending_balance: Decimal
+
+
+class CreditNoteItemPayload(BaseModel):
+    description: str
+    category: str = ""
+    hsn_code: str = ""
+    unit: str = "Sq. Ft."
+    quantity: Decimal = Decimal("1")
+    rate: Decimal = Decimal("0")
+    gst_percent: Decimal = Decimal("18")
+    amount: Decimal = Decimal("0")
+
+
+class CreditNoteItemRead(CreditNoteItemPayload, ORMModel):
+    id: int
+
+
+class CreditNoteCreate(BaseModel):
+    note_date: date = Field(default_factory=date.today)
+    reason: str = ""
+    items: list[CreditNoteItemPayload]
+
+
+class CreditNoteRead(ORMModel):
+    id: int
+    number: str
+    invoice_id: int
+    customer_id: int
+    note_date: date
+    reason: str
+    status: str
+    subtotal: Decimal
+    gst: Decimal
+    grand_total: Decimal
+    created_at: datetime
+    items: list[CreditNoteItemRead]
+    invoice: InvoiceSummaryRead
+    customer: CustomerRead
+
+
+class DebitNoteItemPayload(BaseModel):
+    description: str
+    category: str = ""
+    hsn_code: str = ""
+    unit: str = "Sq. Ft."
+    quantity: Decimal = Decimal("1")
+    rate: Decimal = Decimal("0")
+    gst_percent: Decimal = Decimal("18")
+    amount: Decimal = Decimal("0")
+
+
+class DebitNoteItemRead(DebitNoteItemPayload, ORMModel):
+    id: int
+
+
+class DebitNoteCreate(BaseModel):
+    note_date: date = Field(default_factory=date.today)
+    reason: str = ""
+    items: list[DebitNoteItemPayload]
+
+
+class DebitNoteRead(ORMModel):
+    id: int
+    number: str
+    invoice_id: int
+    customer_id: int
+    note_date: date
+    reason: str
+    status: str
+    subtotal: Decimal
+    gst: Decimal
+    grand_total: Decimal
+    created_at: datetime
+    items: list[DebitNoteItemRead]
+    invoice: InvoiceSummaryRead
+    customer: CustomerRead
+
+
+class VendorBase(BaseModel):
+    name: str
+    phone: str = ""
+    email: str = ""
+    address: str = ""
+    gst_number: str = ""
+    status: str = "Active"
+    pending_payment: Decimal = Decimal("0")
+    notes: str = ""
+
+
+class VendorCreate(VendorBase):
+    code: str | None = None
+
+
+class VendorRead(VendorBase, ORMModel):
+    id: int
+    code: str
+    created_at: datetime
+
+
+class VendorSummaryRead(ORMModel):
+    id: int
+    code: str
+    name: str
+    phone: str
+    gst_number: str
+
+
+class PurchaseBillItemPayload(BaseModel):
+    description: str
+    category: str = ""
+    hsn_code: str = ""
+    unit: str = "Nos"
+    quantity: Decimal = Decimal("1")
+    rate: Decimal = Decimal("0")
+    gst_percent: Decimal = Decimal("18")
+    amount: Decimal = Decimal("0")
+
+
+class PurchaseBillItemRead(PurchaseBillItemPayload, ORMModel):
+    id: int
+
+
+class PurchaseBillCreate(BaseModel):
+    vendor_bill_number: str = ""
+    bill_date: date = Field(default_factory=date.today)
+    due_date: date
+    notes: str = ""
+    items: list[PurchaseBillItemPayload]
+
+
+class VendorPaymentCreate(BaseModel):
+    payment_date: date = Field(default_factory=date.today)
+    mode: str = "NEFT"
+    reference_number: str = ""
+    amount: Decimal
+    paid_by: str = "Arun Verma"
+    notes: str = ""
+
+
+class VendorPaymentRead(VendorPaymentCreate, ORMModel):
+    id: int
+    purchase_bill_id: int
+    created_at: datetime
+
+
+class PurchaseBillRead(ORMModel):
+    id: int
+    number: str
+    vendor_id: int
+    vendor_bill_number: str
+    bill_date: date
+    due_date: date
+    status: str
+    subtotal: Decimal
+    cgst: Decimal
+    sgst: Decimal
+    grand_total: Decimal
+    paid_amount: Decimal
+    pending_balance: Decimal
+    notes: str
+    created_at: datetime
+    items: list[PurchaseBillItemRead]
+    payments: list[VendorPaymentRead]
+    vendor: VendorSummaryRead
+
+
+class ExpenseCreate(BaseModel):
+    expense_date: date = Field(default_factory=date.today)
+    category: str = "Other"
+    description: str = ""
+    amount: Decimal
+    gst_percent: Decimal = Decimal("0")
+    vendor_id: int | None = None
+    mode: str = "Cash"
+    reference_number: str = ""
+    notes: str = ""
+
+
+class ExpenseRead(ExpenseCreate, ORMModel):
+    id: int
+    gst_amount: Decimal
+    total: Decimal
+    created_at: datetime
+    vendor: VendorSummaryRead | None = None
+
+
+class ChartOfAccountRead(ORMModel):
+    id: int
+    code: str
+    name: str
+    account_type: str
+    account_group: str
+    status: str
+
+
+class JournalLineRead(ORMModel):
+    id: int
+    account_id: int
+    debit: Decimal
+    credit: Decimal
+    account: ChartOfAccountRead
+
+
+class JournalEntryRead(ORMModel):
+    id: int
+    number: str
+    entry_date: date
+    narration: str
+    source_type: str
+    source_id: int | None
+    created_at: datetime
+    lines: list[JournalLineRead]
+
+
+class TrialBalanceRow(BaseModel):
+    account_id: int
+    code: str
+    name: str
+    account_type: str
+    debit: Decimal
+    credit: Decimal
+    balance: Decimal
+
+
+class JournalEntrySummaryRead(ORMModel):
+    id: int
+    number: str
+    entry_date: date
+    narration: str
+    source_type: str
+    source_id: int | None
+
+
+class LedgerLineRead(ORMModel):
+    id: int
+    debit: Decimal
+    credit: Decimal
+    entry: JournalEntrySummaryRead
 
 
 class FollowupCreate(BaseModel):

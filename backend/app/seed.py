@@ -11,7 +11,43 @@ from .schemas import QuotationCreate, QuotationItemPayload
 from .services import convert_quotation_to_invoice, create_quotation, record_payment
 
 
+DEFAULT_CHART_OF_ACCOUNTS = [
+    ("1000", "Cash", "Asset", "Current Assets"),
+    ("1010", "Bank", "Asset", "Current Assets"),
+    ("1100", "Accounts Receivable", "Asset", "Current Assets"),
+    ("1200", "Input CGST (ITC)", "Asset", "Duties & Taxes"),
+    ("1210", "Input SGST (ITC)", "Asset", "Duties & Taxes"),
+    ("2000", "Accounts Payable", "Liability", "Current Liabilities"),
+    ("2100", "Output CGST Payable", "Liability", "Duties & Taxes"),
+    ("2110", "Output SGST Payable", "Liability", "Duties & Taxes"),
+    ("3000", "Owner's Capital", "Equity", "Capital Account"),
+    ("4000", "Sales Revenue", "Income", "Direct Income"),
+    ("4100", "Sales Returns & Allowances", "Income", "Direct Income"),
+    ("5000", "Purchases", "Expense", "Direct Expenses"),
+    ("5100", "Rent", "Expense", "Indirect Expenses"),
+    ("5110", "Salaries", "Expense", "Indirect Expenses"),
+    ("5120", "Utilities", "Expense", "Indirect Expenses"),
+    ("5130", "Transport", "Expense", "Indirect Expenses"),
+    ("5140", "Office Supplies", "Expense", "Indirect Expenses"),
+    ("5150", "Marketing", "Expense", "Indirect Expenses"),
+    ("5160", "Professional Fees", "Expense", "Indirect Expenses"),
+    ("5190", "Other Expenses", "Expense", "Indirect Expenses"),
+]
+
+
+def ensure_chart_of_accounts(db: Session) -> None:
+    existing = {row[0] for row in db.execute(select(models.ChartOfAccount.code))}
+    changed = False
+    for code, name, account_type, account_group in DEFAULT_CHART_OF_ACCOUNTS:
+        if code not in existing:
+            db.add(models.ChartOfAccount(code=code, name=name, account_type=account_type, account_group=account_group))
+            changed = True
+    if changed:
+        db.commit()
+
+
 def seed_database(db: Session) -> None:
+    ensure_chart_of_accounts(db)
     if db.scalar(select(models.Customer.id).limit(1)) is not None:
         ensure_business_settings(db)
         backfill_customer_details(db)

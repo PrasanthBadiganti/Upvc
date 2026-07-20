@@ -499,9 +499,15 @@ Phase 1 remaining cleanup:
 - Add a lightweight migration strategy before changing existing SQLite schema.
 - Add deeper startup diagnostics for port conflicts beyond the current `8000` -> `8001` fallback.
 
-Next business phases:
+Backlog:
 
-- Phase 6+: invoice/payment/report polishing.
+- Delivery / installation tracking:
+  - Create work order from invoice
+  - Track delivery status: Pending, Scheduled, Delivered
+  - Track installation status: Pending, In Progress, Completed
+  - Store delivery date, installation date, assigned technician/team
+  - Show work status on invoice detail and dashboard
+  - Add active installations/work orders page
 
 ## Development Rules
 

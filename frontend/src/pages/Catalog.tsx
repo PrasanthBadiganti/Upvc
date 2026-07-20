@@ -25,6 +25,7 @@ const blankItem: CatalogForm = {
   reinforcement: '1.5 mm GI',
   mesh: 'SS Mesh',
   color: 'White',
+  hsn_code: '',
   min_billable_sft: 5,
   rate_per_sft: 0,
   gst_percent: 18,
@@ -95,6 +96,7 @@ export default function Catalog() {
       reinforcement: item.reinforcement || '',
       mesh: item.mesh || '',
       color: item.color,
+      hsn_code: item.hsn_code || '',
       min_billable_sft: Number(item.min_billable_sft),
       rate_per_sft: Number(item.rate_per_sft),
       gst_percent: Number(item.gst_percent || 18),
@@ -134,20 +136,21 @@ export default function Catalog() {
           <Button onClick={showAdd}><PackagePlus size={16} /> Add Item</Button>
         </div>
 
-        {loading ? <Loading /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Product</th><th>Profile</th><th>Glass</th><th>Hardware</th><th>Reinforcement / Mesh</th><th>Color</th><th>Billing Rule</th><th>Rate / SFT</th><th>GST</th><th>Status</th><th>Action</th></tr></thead><tbody>{items.map(item => <tr key={item.id}>
+        {loading ? <Loading /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Product</th><th>Profile</th><th>Glass</th><th>Hardware</th><th>Reinforcement / Mesh</th><th>Color</th><th>HSN</th><th>Billing Rule</th><th>Rate / SFT</th><th>GST</th><th>Status</th><th>Action</th></tr></thead><tbody>{items.map(item => <tr key={item.id}>
           <td><div className="product-cell"><div className="product-image"><i /><i /><i /></div><div><span className="cell-title">{item.name}</span><span className="cell-sub">{item.category} / {item.product_type}</span><span className="cell-sub">{item.subtitle}</span></div></div></td>
           <td><span className="material-chip">{item.profile_brand || item.profile}</span><span className="cell-sub">{item.profile_series || item.profile}</span></td>
           <td><span className="material-chip green">{item.glass_type || item.glass}</span><span className="cell-sub">{item.glass_thickness} {item.glass_color}</span></td>
           <td><span className="material-chip purple">{item.hardware}</span></td>
           <td><span className="cell-title">{item.reinforcement || '--'}</span><span className="cell-sub">{item.mesh || '--'}</span></td>
           <td>{item.color}</td>
+          <td>{item.hsn_code || '--'}</td>
           <td>{item.min_billable_sft} SFT<span className="cell-sub">{item.rounding_rule}</span></td>
           <td className="amount success"><b>{currency(item.rate_per_sft)}</b><span className="cell-sub">Install {currency(item.installation_rate)}</span></td>
           <td>{item.gst_percent}%</td>
           <td><Status value={item.status} /></td>
           <td><button className="mini-button" onClick={() => showEdit(item)}><Edit3 size={14} /></button></td>
         </tr>)}
-        {!items.length && <tr><td colSpan={11} className="muted">No catalog items found</td></tr>}
+        {!items.length && <tr><td colSpan={12} className="muted">No catalog items found</td></tr>}
         </tbody></table></div>}
 
         <div className="pagination"><span>{items.length} items | {summary.active} active | {summary.categories} categories | Avg rate {currency(summary.avgRate)}</span><div className="pagination-controls"><button className="page-chip active">1</button><Select style={{ width: 95 }}><option>20 / page</option></Select></div></div>
@@ -182,6 +185,7 @@ export default function Catalog() {
           <Field label="Hardware"><Input value={form.hardware} onChange={e => setForm({ ...form, hardware: e.target.value })} /></Field>
           <Field label="Reinforcement"><Input value={form.reinforcement} onChange={e => setForm({ ...form, reinforcement: e.target.value })} /></Field>
           <Field label="Mesh"><Input value={form.mesh} onChange={e => setForm({ ...form, mesh: e.target.value })} /></Field>
+          <Field label="HSN Code"><Input value={form.hsn_code} onChange={e => setForm({ ...form, hsn_code: e.target.value })} /></Field>
           <Field label="Min Billable SFT"><Input type="number" step="0.01" value={Number(form.min_billable_sft)} onChange={e => setForm({ ...form, min_billable_sft: Number(e.target.value) })} /></Field>
           <Field label="Rate / SFT"><Input type="number" step="0.01" value={Number(form.rate_per_sft)} onChange={e => setForm({ ...form, rate_per_sft: Number(e.target.value) })} /></Field>
           <Field label="GST %"><Input type="number" step="0.01" value={Number(form.gst_percent)} onChange={e => setForm({ ...form, gst_percent: Number(e.target.value) })} /></Field>

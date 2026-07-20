@@ -17,9 +17,9 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from . import models, schemas
 from .database import Base, DEFAULT_DB_PATH, SessionLocal, engine, get_db
-from .pdf import build_invoice_pdf, build_payment_receipt_pdf, build_quotation_pdf
+from .pdf import build_credit_note_pdf, build_debit_note_pdf, build_invoice_pdf, build_payment_receipt_pdf, build_purchase_bill_pdf, build_quotation_pdf
 from .seed import seed_database
-from .services import cancel_invoice, convert_quotation_to_invoice, create_quotation, duplicate_quotation, get_invoice, get_payment, get_quotation, money, next_code, record_payment, reopen_invoice, update_quotation
+from .services import cancel_credit_note, cancel_debit_note, cancel_invoice, cancel_purchase_bill, convert_quotation_to_invoice, create_expense, create_purchase_bill, create_quotation, delete_expense, duplicate_quotation, get_account_ledger, get_credit_note, get_debit_note, get_expense, get_invoice, get_journal_entry, get_payment, get_purchase_bill, get_quotation, get_trial_balance, issue_credit_note, issue_debit_note, list_chart_of_accounts, list_journal_entries, money, next_code, record_payment, record_vendor_payment, reopen_invoice, reopen_purchase_bill, update_expense, update_quotation
 
 app = FastAPI(title="UPVC Pro API", version="1.0.0")
 app.add_middleware(
@@ -58,9 +58,14 @@ def ensure_schema() -> None:
             "gst_percent": "NUMERIC(6, 2) DEFAULT 18",
             "installation_rate": "NUMERIC(12, 2) DEFAULT 0",
             "rounding_rule": "VARCHAR(50) DEFAULT 'Round up'",
+            "hsn_code": "VARCHAR(20) DEFAULT ''",
         },
         "quotation_items": {
             "catalog_item_id": "INTEGER",
+            "hsn_code": "VARCHAR(20) DEFAULT ''",
+        },
+        "invoice_items": {
+            "hsn_code": "VARCHAR(20) DEFAULT ''",
         },
         "business_settings": {
             "logo_path": "VARCHAR(260) DEFAULT ''",
@@ -608,6 +613,249 @@ def invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Invoice not found") from exc
     data = build_invoice_pdf(invoice, get_or_create_business_settings(db))
     return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{invoice.number}.pdf"'})
+
+
+@app.post("/api/invoices/{invoice_id}/credit-notes", response_model=schemas.CreditNoteRead, status_code=201)
+def create_credit_note(invoice_id: int, payload: schemas.CreditNoteCreate, db: Session = Depends(get_db)):
+    try:
+        return issue_credit_note(db, invoice_id, payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(404, "Invoice not found") from exc
+
+
+@app.get("/api/credit-notes", response_model=list[schemas.CreditNoteRead])
+def list_credit_notes(db: Session = Depends(get_db)):
+    stmt = select(models.CreditNote).options(selectinload(models.CreditNote.items), joinedload(models.CreditNote.customer), joinedload(models.CreditNote.invoice)).order_by(models.CreditNote.id.desc())
+    return db.scalars(stmt).unique().all()
+
+
+@app.get("/api/credit-notes/{credit_note_id}", response_model=schemas.CreditNoteRead)
+def read_credit_note(credit_note_id: int, db: Session = Depends(get_db)):
+    try:
+        return get_credit_note(db, credit_note_id)
+    except Exception as exc:
+        raise HTTPException(404, "Credit note not found") from exc
+
+
+@app.post("/api/credit-notes/{credit_note_id}/cancel", response_model=schemas.CreditNoteRead)
+def cancel_credit_note_endpoint(credit_note_id: int, db: Session = Depends(get_db)):
+    try:
+        return cancel_credit_note(db, credit_note_id)
+    except Exception as exc:
+        raise HTTPException(404, "Credit note not found") from exc
+
+
+@app.get("/api/credit-notes/{credit_note_id}/pdf")
+def credit_note_pdf(credit_note_id: int, db: Session = Depends(get_db)):
+    try:
+        credit_note = get_credit_note(db, credit_note_id)
+    except Exception as exc:
+        raise HTTPException(404, "Credit note not found") from exc
+    data = build_credit_note_pdf(credit_note, get_or_create_business_settings(db))
+    return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{credit_note.number}.pdf"'})
+
+
+@app.post("/api/invoices/{invoice_id}/debit-notes", response_model=schemas.DebitNoteRead, status_code=201)
+def create_debit_note(invoice_id: int, payload: schemas.DebitNoteCreate, db: Session = Depends(get_db)):
+    try:
+        return issue_debit_note(db, invoice_id, payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(404, "Invoice not found") from exc
+
+
+@app.get("/api/debit-notes", response_model=list[schemas.DebitNoteRead])
+def list_debit_notes(db: Session = Depends(get_db)):
+    stmt = select(models.DebitNote).options(selectinload(models.DebitNote.items), joinedload(models.DebitNote.customer), joinedload(models.DebitNote.invoice)).order_by(models.DebitNote.id.desc())
+    return db.scalars(stmt).unique().all()
+
+
+@app.get("/api/debit-notes/{debit_note_id}", response_model=schemas.DebitNoteRead)
+def read_debit_note(debit_note_id: int, db: Session = Depends(get_db)):
+    try:
+        return get_debit_note(db, debit_note_id)
+    except Exception as exc:
+        raise HTTPException(404, "Debit note not found") from exc
+
+
+@app.post("/api/debit-notes/{debit_note_id}/cancel", response_model=schemas.DebitNoteRead)
+def cancel_debit_note_endpoint(debit_note_id: int, db: Session = Depends(get_db)):
+    try:
+        return cancel_debit_note(db, debit_note_id)
+    except Exception as exc:
+        raise HTTPException(404, "Debit note not found") from exc
+
+
+@app.get("/api/debit-notes/{debit_note_id}/pdf")
+def debit_note_pdf(debit_note_id: int, db: Session = Depends(get_db)):
+    try:
+        debit_note = get_debit_note(db, debit_note_id)
+    except Exception as exc:
+        raise HTTPException(404, "Debit note not found") from exc
+    data = build_debit_note_pdf(debit_note, get_or_create_business_settings(db))
+    return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{debit_note.number}.pdf"'})
+
+
+@app.get("/api/vendors", response_model=list[schemas.VendorRead])
+def list_vendors(search: str = "", status: str = "", db: Session = Depends(get_db)):
+    stmt = select(models.Vendor).order_by(models.Vendor.id)
+    if search:
+        q = f"%{search}%"
+        stmt = stmt.where(or_(models.Vendor.name.ilike(q), models.Vendor.phone.ilike(q), models.Vendor.email.ilike(q)))
+    if status:
+        stmt = stmt.where(models.Vendor.status == status)
+    return db.scalars(stmt).all()
+
+
+@app.get("/api/vendors/{vendor_id}", response_model=schemas.VendorRead)
+def read_vendor(vendor_id: int, db: Session = Depends(get_db)):
+    vendor = db.get(models.Vendor, vendor_id)
+    if not vendor:
+        raise HTTPException(404, "Vendor not found")
+    return vendor
+
+
+@app.post("/api/vendors", response_model=schemas.VendorRead, status_code=201)
+def add_vendor(payload: schemas.VendorCreate, db: Session = Depends(get_db)):
+    vendor = models.Vendor(**payload.model_dump(exclude={"code"}), code=payload.code or next_code(db, models.Vendor, "VEND"))
+    db.add(vendor)
+    db.commit()
+    db.refresh(vendor)
+    return vendor
+
+
+@app.put("/api/vendors/{vendor_id}", response_model=schemas.VendorRead)
+def update_vendor(vendor_id: int, payload: schemas.VendorCreate, db: Session = Depends(get_db)):
+    vendor = db.get(models.Vendor, vendor_id)
+    if not vendor:
+        raise HTTPException(404, "Vendor not found")
+    for key, value in payload.model_dump(exclude={"code"}).items():
+        setattr(vendor, key, value)
+    if payload.code:
+        vendor.code = payload.code
+    db.commit()
+    db.refresh(vendor)
+    return vendor
+
+
+@app.post("/api/vendors/{vendor_id}/purchase-bills", response_model=schemas.PurchaseBillRead, status_code=201)
+def create_purchase_bill_endpoint(vendor_id: int, payload: schemas.PurchaseBillCreate, db: Session = Depends(get_db)):
+    try:
+        return create_purchase_bill(db, vendor_id, payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/purchase-bills", response_model=list[schemas.PurchaseBillRead])
+def list_purchase_bills(db: Session = Depends(get_db)):
+    stmt = select(models.PurchaseBill).options(selectinload(models.PurchaseBill.items), selectinload(models.PurchaseBill.payments), joinedload(models.PurchaseBill.vendor)).order_by(models.PurchaseBill.id.desc())
+    return db.scalars(stmt).unique().all()
+
+
+@app.get("/api/purchase-bills/{purchase_bill_id}", response_model=schemas.PurchaseBillRead)
+def read_purchase_bill(purchase_bill_id: int, db: Session = Depends(get_db)):
+    try:
+        return get_purchase_bill(db, purchase_bill_id)
+    except Exception as exc:
+        raise HTTPException(404, "Purchase bill not found") from exc
+
+
+@app.post("/api/purchase-bills/{purchase_bill_id}/payments", response_model=schemas.PurchaseBillRead, status_code=201)
+def add_vendor_payment(purchase_bill_id: int, payload: schemas.VendorPaymentCreate, db: Session = Depends(get_db)):
+    try:
+        return record_vendor_payment(db, purchase_bill_id, payload.amount, **payload.model_dump(exclude={"amount"}))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(404, "Purchase bill not found") from exc
+
+
+@app.post("/api/purchase-bills/{purchase_bill_id}/cancel", response_model=schemas.PurchaseBillRead)
+def cancel_purchase_bill_endpoint(purchase_bill_id: int, force: bool = Query(False), db: Session = Depends(get_db)):
+    try:
+        return cancel_purchase_bill(db, purchase_bill_id, force=force)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(404, "Purchase bill not found") from exc
+
+
+@app.post("/api/purchase-bills/{purchase_bill_id}/reopen", response_model=schemas.PurchaseBillRead)
+def reopen_purchase_bill_endpoint(purchase_bill_id: int, db: Session = Depends(get_db)):
+    try:
+        return reopen_purchase_bill(db, purchase_bill_id)
+    except Exception as exc:
+        raise HTTPException(404, "Purchase bill not found") from exc
+
+
+@app.get("/api/purchase-bills/{purchase_bill_id}/pdf")
+def purchase_bill_pdf(purchase_bill_id: int, db: Session = Depends(get_db)):
+    try:
+        bill = get_purchase_bill(db, purchase_bill_id)
+    except Exception as exc:
+        raise HTTPException(404, "Purchase bill not found") from exc
+    data = build_purchase_bill_pdf(bill, get_or_create_business_settings(db))
+    return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{bill.number}.pdf"'})
+
+
+@app.get("/api/expenses", response_model=list[schemas.ExpenseRead])
+def list_expenses(db: Session = Depends(get_db)):
+    stmt = select(models.Expense).options(joinedload(models.Expense.vendor)).order_by(models.Expense.id.desc())
+    return db.scalars(stmt).unique().all()
+
+
+@app.post("/api/expenses", response_model=schemas.ExpenseRead, status_code=201)
+def add_expense(payload: schemas.ExpenseCreate, db: Session = Depends(get_db)):
+    return create_expense(db, payload)
+
+
+@app.put("/api/expenses/{expense_id}", response_model=schemas.ExpenseRead)
+def edit_expense(expense_id: int, payload: schemas.ExpenseCreate, db: Session = Depends(get_db)):
+    try:
+        return update_expense(db, expense_id, payload)
+    except Exception as exc:
+        raise HTTPException(404, "Expense not found") from exc
+
+
+@app.delete("/api/expenses/{expense_id}", status_code=204)
+def remove_expense(expense_id: int, db: Session = Depends(get_db)):
+    try:
+        delete_expense(db, expense_id)
+    except Exception as exc:
+        raise HTTPException(404, "Expense not found") from exc
+
+
+@app.get("/api/accounts", response_model=list[schemas.ChartOfAccountRead])
+def list_accounts(db: Session = Depends(get_db)):
+    return list_chart_of_accounts(db)
+
+
+@app.get("/api/accounts/{account_id}/ledger", response_model=list[schemas.LedgerLineRead])
+def account_ledger(account_id: int, db: Session = Depends(get_db)):
+    if not db.get(models.ChartOfAccount, account_id):
+        raise HTTPException(404, "Account not found")
+    return get_account_ledger(db, account_id)
+
+
+@app.get("/api/journal", response_model=list[schemas.JournalEntryRead])
+def list_journal(db: Session = Depends(get_db)):
+    return list_journal_entries(db)
+
+
+@app.get("/api/journal/{journal_entry_id}", response_model=schemas.JournalEntryRead)
+def read_journal_entry(journal_entry_id: int, db: Session = Depends(get_db)):
+    try:
+        return get_journal_entry(db, journal_entry_id)
+    except Exception as exc:
+        raise HTTPException(404, "Journal entry not found") from exc
+
+
+@app.get("/api/trial-balance", response_model=list[schemas.TrialBalanceRow])
+def trial_balance(db: Session = Depends(get_db)):
+    return get_trial_balance(db)
 
 
 @app.get("/api/followups", response_model=list[schemas.FollowupRead])

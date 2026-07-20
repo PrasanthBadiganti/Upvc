@@ -7,6 +7,20 @@ import CreateQuotation from './pages/CreateQuotation';
 import QuotationDetails from './pages/QuotationDetails';
 import Invoices from './pages/Invoices';
 import InvoiceDetails from './pages/InvoiceDetails';
+import CreditNotes from './pages/CreditNotes';
+import CreditNoteDetails from './pages/CreditNoteDetails';
+import DebitNotes from './pages/DebitNotes';
+import DebitNoteDetails from './pages/DebitNoteDetails';
+import Vendors from './pages/Vendors';
+import PurchaseBills from './pages/PurchaseBills';
+import CreatePurchaseBill from './pages/CreatePurchaseBill';
+import PurchaseBillDetails from './pages/PurchaseBillDetails';
+import Expenses from './pages/Expenses';
+import ChartOfAccounts from './pages/ChartOfAccounts';
+import AccountLedger from './pages/AccountLedger';
+import Journal from './pages/Journal';
+import JournalEntryDetails from './pages/JournalEntryDetails';
+import TrialBalance from './pages/TrialBalance';
 import Payments from './pages/Payments';
 import Followups from './pages/Followups';
 import Catalog from './pages/Catalog';
@@ -14,4 +28,4 @@ import Reports from './pages/Reports';
 import SettingsPage from './pages/SettingsPage';
 import NotFound from './pages/NotFound';
 
-export default function App(){return <Routes><Route element={<Layout/>}><Route path="/" element={<Dashboard/>}/><Route path="/customers" element={<Customers/>}/><Route path="/quotations" element={<Quotations/>}/><Route path="/quotations/new" element={<CreateQuotation/>}/><Route path="/quotations/:id/edit" element={<CreateQuotation/>}/><Route path="/quotations/:id" element={<QuotationDetails/>}/><Route path="/invoices" element={<Invoices/>}/><Route path="/invoices/:id" element={<InvoiceDetails/>}/><Route path="/payments" element={<Payments/>}/><Route path="/followups" element={<Followups/>}/><Route path="/catalog" element={<Catalog/>}/><Route path="/reports" element={<Reports/>}/><Route path="/settings" element={<SettingsPage/>}/><Route path="*" element={<NotFound/>}/></Route></Routes>}
+export default function App(){return <Routes><Route element={<Layout/>}><Route path="/" element={<Dashboard/>}/><Route path="/customers" element={<Customers/>}/><Route path="/quotations" element={<Quotations/>}/><Route path="/quotations/new" element={<CreateQuotation/>}/><Route path="/quotations/:id/edit" element={<CreateQuotation/>}/><Route path="/quotations/:id" element={<QuotationDetails/>}/><Route path="/invoices" element={<Invoices/>}/><Route path="/invoices/:id" element={<InvoiceDetails/>}/><Route path="/credit-notes" element={<CreditNotes/>}/><Route path="/credit-notes/:id" element={<CreditNoteDetails/>}/><Route path="/debit-notes" element={<DebitNotes/>}/><Route path="/debit-notes/:id" element={<DebitNoteDetails/>}/><Route path="/vendors" element={<Vendors/>}/><Route path="/purchase-bills" element={<PurchaseBills/>}/><Route path="/purchase-bills/new" element={<CreatePurchaseBill/>}/><Route path="/purchase-bills/:id" element={<PurchaseBillDetails/>}/><Route path="/expenses" element={<Expenses/>}/><Route path="/accounts" element={<ChartOfAccounts/>}/><Route path="/accounts/:id" element={<AccountLedger/>}/><Route path="/journal" element={<Journal/>}/><Route path="/journal/:id" element={<JournalEntryDetails/>}/><Route path="/trial-balance" element={<TrialBalance/>}/><Route path="/payments" element={<Payments/>}/><Route path="/followups" element={<Followups/>}/><Route path="/catalog" element={<Catalog/>}/><Route path="/reports" element={<Reports/>}/><Route path="/settings" element={<SettingsPage/>}/><Route path="*" element={<NotFound/>}/></Route></Routes>}

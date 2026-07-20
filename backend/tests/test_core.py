@@ -489,3 +489,459 @@ def test_prebuilt_frontend_is_served():
         assert nested.status_code == 200
         assert "<div id=\"root\"></div>" in nested.text
         assert client.get("/api/not-a-real-endpoint").status_code == 404
+
+
+def _create_paid_invoice(client, hsn_code="3925.20.00"):
+    customers = client.get("/api/customers").json()
+    payload = {
+        "customer_id": customers[0]["id"],
+        "quotation_date": "2026-07-14",
+        "validity_days": 30,
+        "sales_person": "Arun Verma",
+        "site_location": "CN/DN Site",
+        "address": "CN/DN Address",
+        "status": "Sent",
+        "transport": "0",
+        "discount": "0",
+        "notes": "Credit/Debit note test",
+        "items": [{
+            "category": "Sliding Window",
+            "style": "2 Track",
+            "width_mm": "1200",
+            "height_mm": "1200",
+            "sft": "11.56",
+            "quantity": 1,
+            "total_sft": "11.56",
+            "rate_per_sft": "1000",
+            "amount": "11560",
+            "hsn_code": hsn_code,
+            "location": "Hall",
+        }],
+    }
+    quote = client.post("/api/quotations", json=payload)
+    assert quote.status_code == 201, quote.text
+    invoice = client.post(f"/api/quotations/{quote.json()['id']}/convert")
+    assert invoice.status_code == 200, invoice.text
+    return invoice.json()
+
+
+def test_hsn_code_flows_from_catalog_through_invoice_pdf():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client, hsn_code="3925.20.00")
+        assert invoice["items"][0]["hsn_code"] == "3925.20.00"
+        pdf = client.get(f"/api/invoices/{invoice['id']}/pdf")
+        assert pdf.status_code == 200, pdf.text
+        assert pdf.content.startswith(b"%PDF")
+
+
+def test_credit_note_reduces_balance_and_can_be_cancelled():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client)
+        pending_before = Decimal(invoice["pending_balance"])
+        customer_before = Decimal(client.get(f"/api/customers/{invoice['customer_id']}/profile").json()["customer"]["pending_payment"])
+
+        cn_payload = {
+            "note_date": "2026-07-15",
+            "reason": "Damaged panel returned",
+            "items": [{
+                "description": "Sliding Window return",
+                "category": "Sliding Window",
+                "hsn_code": "3925.20.00",
+                "unit": "Sq. Ft.",
+                "quantity": "1",
+                "rate": "1000",
+                "gst_percent": "18",
+                "amount": "1000",
+            }],
+        }
+        cn = client.post(f"/api/invoices/{invoice['id']}/credit-notes", json=cn_payload)
+        assert cn.status_code == 201, cn.text
+        cn_json = cn.json()
+        assert cn_json["number"].startswith("CN-")
+        assert cn_json["status"] == "Issued"
+        expected_total = Decimal("1000") * Decimal("1.18")
+        assert Decimal(cn_json["grand_total"]) == expected_total.quantize(Decimal("0.01"))
+
+        updated_invoice = client.get(f"/api/invoices/{invoice['id']}").json()
+        assert Decimal(updated_invoice["pending_balance"]) == pending_before - Decimal(cn_json["grand_total"])
+
+        customer_after = Decimal(client.get(f"/api/customers/{invoice['customer_id']}/profile").json()["customer"]["pending_payment"])
+        assert customer_after == customer_before - Decimal(cn_json["grand_total"])
+
+        pdf = client.get(f"/api/credit-notes/{cn_json['id']}/pdf")
+        assert pdf.status_code == 200, pdf.text
+        assert pdf.content.startswith(b"%PDF")
+
+        cancelled = client.post(f"/api/credit-notes/{cn_json['id']}/cancel")
+        assert cancelled.status_code == 200, cancelled.text
+        assert cancelled.json()["status"] == "Cancelled"
+        restored_invoice = client.get(f"/api/invoices/{invoice['id']}").json()
+        assert Decimal(restored_invoice["pending_balance"]) == pending_before
+
+        # Cancelling twice is a no-op, not an error.
+        again = client.post(f"/api/credit-notes/{cn_json['id']}/cancel")
+        assert again.status_code == 200, again.text
+        assert again.json()["status"] == "Cancelled"
+
+
+def test_credit_note_cannot_exceed_pending_balance():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client)
+        over_amount = Decimal(invoice["pending_balance"]) + Decimal("1000")
+        oversized = client.post(f"/api/invoices/{invoice['id']}/credit-notes", json={
+            "note_date": "2026-07-15",
+            "reason": "Too much",
+            "items": [{"description": "Oversized credit", "quantity": "1", "rate": str(over_amount), "gst_percent": "0"}],
+        })
+        assert oversized.status_code == 400
+        assert "pending balance" in oversized.json()["detail"].lower()
+
+
+def test_debit_note_increases_balance_and_can_be_cancelled():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client)
+        pending_before = Decimal(invoice["pending_balance"])
+
+        dn = client.post(f"/api/invoices/{invoice['id']}/debit-notes", json={
+            "note_date": "2026-07-15",
+            "reason": "Undercharged installation",
+            "items": [{
+                "description": "Installation surcharge",
+                "category": "Service",
+                "hsn_code": "9954",
+                "quantity": "1",
+                "rate": "500",
+                "gst_percent": "18",
+                "amount": "500",
+            }],
+        })
+        assert dn.status_code == 201, dn.text
+        dn_json = dn.json()
+        assert dn_json["number"].startswith("DN-")
+
+        updated_invoice = client.get(f"/api/invoices/{invoice['id']}").json()
+        assert Decimal(updated_invoice["pending_balance"]) == pending_before + Decimal(dn_json["grand_total"])
+
+        pdf = client.get(f"/api/debit-notes/{dn_json['id']}/pdf")
+        assert pdf.status_code == 200, pdf.text
+        assert pdf.content.startswith(b"%PDF")
+
+        cancelled = client.post(f"/api/debit-notes/{dn_json['id']}/cancel")
+        assert cancelled.status_code == 200, cancelled.text
+        restored_invoice = client.get(f"/api/invoices/{invoice['id']}").json()
+        assert Decimal(restored_invoice["pending_balance"]) == pending_before
+
+
+def test_credit_and_debit_notes_blocked_on_cancelled_invoice():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client)
+        cancelled = client.post(f"/api/invoices/{invoice['id']}/cancel")
+        assert cancelled.status_code == 200, cancelled.text
+
+        cn = client.post(f"/api/invoices/{invoice['id']}/credit-notes", json={
+            "note_date": "2026-07-15",
+            "reason": "Blocked",
+            "items": [{"description": "x", "quantity": "1", "rate": "10", "gst_percent": "0"}],
+        })
+        assert cn.status_code == 400
+        assert "cancelled invoice" in cn.json()["detail"].lower()
+
+        dn = client.post(f"/api/invoices/{invoice['id']}/debit-notes", json={
+            "note_date": "2026-07-15",
+            "reason": "Blocked",
+            "items": [{"description": "x", "quantity": "1", "rate": "10", "gst_percent": "0"}],
+        })
+        assert dn.status_code == 400
+        assert "cancelled invoice" in dn.json()["detail"].lower()
+
+
+def _create_vendor(client, name="Steelframe Supplies"):
+    resp = client.post("/api/vendors", json={
+        "name": name,
+        "phone": "+91 90000 11111",
+        "email": "info@steelframe.example",
+        "address": "Industrial Area, Vizianagaram",
+        "gst_number": "37AAACS1234A1Z5",
+        "status": "Active",
+        "notes": "",
+    })
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def _create_purchase_bill(client, vendor_id, hsn_code="3925.20.00"):
+    resp = client.post(f"/api/vendors/{vendor_id}/purchase-bills", json={
+        "vendor_bill_number": "SF-INV-9001",
+        "bill_date": "2026-07-15",
+        "due_date": "2026-08-14",
+        "notes": "Raw profile stock",
+        "items": [{
+            "description": "VEKA 60mm profile bundle",
+            "category": "Raw Material",
+            "hsn_code": hsn_code,
+            "unit": "Nos",
+            "quantity": "10",
+            "rate": "1200",
+            "gst_percent": "18",
+            "amount": "12000",
+        }],
+    })
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def test_vendor_crud():
+    with TestClient(app) as client:
+        vendor = _create_vendor(client)
+        assert vendor["code"].startswith("VEND-")
+        assert vendor["status"] == "Active"
+
+        listed = client.get("/api/vendors").json()
+        assert any(v["id"] == vendor["id"] for v in listed)
+
+        fetched = client.get(f"/api/vendors/{vendor['id']}")
+        assert fetched.status_code == 200, fetched.text
+
+        updated = client.put(f"/api/vendors/{vendor['id']}", json={**vendor, "status": "Inactive"})
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["status"] == "Inactive"
+
+
+def test_purchase_bill_create_and_record_payment():
+    with TestClient(app) as client:
+        vendor = _create_vendor(client, name="Glass Traders Co")
+        bill = _create_purchase_bill(client, vendor["id"])
+        assert bill["number"].startswith("PB-")
+        assert bill["status"] == "Unpaid"
+        assert bill["items"][0]["hsn_code"] == "3925.20.00"
+        expected_total = Decimal("12000") * Decimal("1.18")
+        assert Decimal(bill["grand_total"]) == expected_total.quantize(Decimal("0.01"))
+
+        vendor_after_bill = client.get(f"/api/vendors/{vendor['id']}").json()
+        assert Decimal(vendor_after_bill["pending_payment"]) == Decimal(bill["grand_total"])
+
+        partial = Decimal(bill["pending_balance"]) / 2
+        payment = client.post(f"/api/purchase-bills/{bill['id']}/payments", json={
+            "payment_date": "2026-07-16", "mode": "NEFT", "reference_number": "TXN1", "amount": str(partial), "paid_by": "Admin", "notes": "",
+        })
+        assert payment.status_code == 201, payment.text
+        assert payment.json()["status"] == "Partially Paid"
+
+        pdf = client.get(f"/api/purchase-bills/{bill['id']}/pdf")
+        assert pdf.status_code == 200, pdf.text
+        assert pdf.content.startswith(b"%PDF")
+
+        overpay = client.post(f"/api/purchase-bills/{bill['id']}/payments", json={
+            "payment_date": "2026-07-16", "mode": "NEFT", "reference_number": "TXN2", "amount": str(bill["grand_total"]), "paid_by": "Admin", "notes": "",
+        })
+        assert overpay.status_code == 400
+        assert "pending balance" in overpay.json()["detail"].lower()
+
+
+def test_purchase_bill_cancel_reopen_and_force_rules():
+    with TestClient(app) as client:
+        vendor = _create_vendor(client, name="Hardware House")
+        bill = _create_purchase_bill(client, vendor["id"])
+
+        cancelled = client.post(f"/api/purchase-bills/{bill['id']}/cancel")
+        assert cancelled.status_code == 200, cancelled.text
+        assert cancelled.json()["status"] == "Cancelled"
+
+        blocked = client.post(f"/api/purchase-bills/{bill['id']}/payments", json={
+            "payment_date": "2026-07-16", "mode": "Cash", "reference_number": "X", "amount": "10", "paid_by": "Admin", "notes": "",
+        })
+        assert blocked.status_code == 400
+        assert "cancelled purchase bill" in blocked.json()["detail"].lower()
+
+        reopened = client.post(f"/api/purchase-bills/{bill['id']}/reopen")
+        assert reopened.status_code == 200, reopened.text
+        assert reopened.json()["status"] == "Unpaid"
+
+        paid = client.post(f"/api/purchase-bills/{bill['id']}/payments", json={
+            "payment_date": "2026-07-16", "mode": "NEFT", "reference_number": "FULL", "amount": reopened.json()["pending_balance"], "paid_by": "Admin", "notes": "",
+        })
+        assert paid.status_code == 201, paid.text
+        assert paid.json()["status"] == "Paid"
+
+        no_force = client.post(f"/api/purchase-bills/{bill['id']}/cancel")
+        assert no_force.status_code == 400
+        forced = client.post(f"/api/purchase-bills/{bill['id']}/cancel", params={"force": "true"})
+        assert forced.status_code == 200, forced.text
+        assert forced.json()["status"] == "Cancelled"
+
+
+def test_expense_crud():
+    with TestClient(app) as client:
+        vendor = _create_vendor(client, name="City Fuel Station")
+        created = client.post("/api/expenses", json={
+            "expense_date": "2026-07-16",
+            "category": "Transport",
+            "description": "Diesel for delivery van",
+            "amount": "2000",
+            "gst_percent": "18",
+            "vendor_id": vendor["id"],
+            "mode": "Cash",
+            "reference_number": "",
+            "notes": "",
+        })
+        assert created.status_code == 201, created.text
+        expense = created.json()
+        assert Decimal(expense["gst_amount"]) == Decimal("360.00")
+        assert Decimal(expense["total"]) == Decimal("2360.00")
+
+        listed = client.get("/api/expenses").json()
+        assert any(e["id"] == expense["id"] for e in listed)
+
+        updated = client.put(f"/api/expenses/{expense['id']}", json={**{k: expense[k] for k in ("expense_date", "category", "description", "amount", "gst_percent", "vendor_id", "mode", "reference_number", "notes")}, "amount": "2500"})
+        assert updated.status_code == 200, updated.text
+        assert Decimal(updated.json()["total"]) == Decimal("2950.00")
+
+        deleted = client.delete(f"/api/expenses/{expense['id']}")
+        assert deleted.status_code == 204, deleted.text
+        assert not any(e["id"] == expense["id"] for e in client.get("/api/expenses").json())
+
+
+def _journal_entries_for(client, source_type, source_id):
+    entries = client.get("/api/journal").json()
+    return [e for e in entries if e["source_type"] == source_type and e["source_id"] == source_id]
+
+
+def _assert_balanced(entry):
+    total_debit = sum(Decimal(line["debit"]) for line in entry["lines"])
+    total_credit = sum(Decimal(line["credit"]) for line in entry["lines"])
+    assert total_debit == total_credit, entry
+
+
+def test_chart_of_accounts_seeded():
+    with TestClient(app) as client:
+        accounts = client.get("/api/accounts").json()
+        codes = {a["code"] for a in accounts}
+        assert {"1000", "1010", "1100", "1200", "1210", "2000", "2100", "2110", "4000", "4100", "5000"} <= codes
+
+
+def test_invoice_and_payment_post_balanced_journal_entries():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client)
+        invoice_entries = _journal_entries_for(client, "Invoice", invoice["id"])
+        assert len(invoice_entries) == 1
+        _assert_balanced(invoice_entries[0])
+        ar_line = next(l for l in invoice_entries[0]["lines"] if l["account"]["code"] == "1100")
+        assert Decimal(ar_line["debit"]) == Decimal(invoice["grand_total"])
+
+        payment = client.post(f"/api/invoices/{invoice['id']}/payments", json={
+            "payment_date": "2026-07-16", "mode": "UPI", "reference_number": "PAYTEST", "amount": "1000", "received_by": "Admin", "notes": "",
+        })
+        assert payment.status_code == 201, payment.text
+        payment_id = payment.json()["payments"][-1]["id"]
+        payment_entries = _journal_entries_for(client, "Payment", payment_id)
+        assert len(payment_entries) == 1
+        _assert_balanced(payment_entries[0])
+
+
+def test_invoice_cancel_reverses_journal_entry():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client)
+        cancelled = client.post(f"/api/invoices/{invoice['id']}/cancel")
+        assert cancelled.status_code == 200, cancelled.text
+        reversal_entries = _journal_entries_for(client, "InvoiceCancellation", invoice["id"])
+        assert len(reversal_entries) == 1
+        _assert_balanced(reversal_entries[0])
+
+        ar_account_id = next(a["id"] for a in client.get("/api/accounts").json() if a["code"] == "1100")
+        ar_ledger = client.get(f"/api/accounts/{ar_account_id}/ledger").json()
+        net = sum(Decimal(l["debit"]) - Decimal(l["credit"]) for l in ar_ledger if l["entry"]["source_id"] == invoice["id"] and l["entry"]["source_type"] in ("Invoice", "InvoiceCancellation"))
+        assert net == Decimal("0.00")
+
+
+def test_credit_and_debit_note_post_balanced_journal_entries():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client)
+        cn = client.post(f"/api/invoices/{invoice['id']}/credit-notes", json={
+            "note_date": "2026-07-15", "reason": "Return",
+            "items": [{"description": "x", "quantity": "1", "rate": "1000", "gst_percent": "18"}],
+        })
+        assert cn.status_code == 201, cn.text
+        cn_entries = _journal_entries_for(client, "CreditNote", cn.json()["id"])
+        assert len(cn_entries) == 1
+        _assert_balanced(cn_entries[0])
+
+        dn = client.post(f"/api/invoices/{invoice['id']}/debit-notes", json={
+            "note_date": "2026-07-15", "reason": "Undercharge",
+            "items": [{"description": "x", "quantity": "1", "rate": "500", "gst_percent": "18"}],
+        })
+        assert dn.status_code == 201, dn.text
+        dn_entries = _journal_entries_for(client, "DebitNote", dn.json()["id"])
+        assert len(dn_entries) == 1
+        _assert_balanced(dn_entries[0])
+
+
+def test_purchase_bill_and_vendor_payment_post_balanced_journal_entries():
+    with TestClient(app) as client:
+        vendor = _create_vendor(client, name="Ledger Test Vendor")
+        bill = _create_purchase_bill(client, vendor["id"])
+        bill_entries = _journal_entries_for(client, "PurchaseBill", bill["id"])
+        assert len(bill_entries) == 1
+        _assert_balanced(bill_entries[0])
+
+        payment = client.post(f"/api/purchase-bills/{bill['id']}/payments", json={
+            "payment_date": "2026-07-16", "mode": "Cash", "reference_number": "", "amount": "1000", "paid_by": "Admin", "notes": "",
+        })
+        assert payment.status_code == 201, payment.text
+        payment_id = payment.json()["payments"][-1]["id"]
+        payment_entries = _journal_entries_for(client, "VendorPayment", payment_id)
+        assert len(payment_entries) == 1
+        _assert_balanced(payment_entries[0])
+
+        cancelled = client.post(f"/api/purchase-bills/{bill['id']}/cancel", params={"force": "true"})
+        assert cancelled.status_code == 200, cancelled.text
+        cancel_entries = _journal_entries_for(client, "PurchaseBillCancellation", bill["id"])
+        assert len(cancel_entries) == 1
+        _assert_balanced(cancel_entries[0])
+
+
+def test_expense_journal_entry_follows_edits():
+    with TestClient(app) as client:
+        created = client.post("/api/expenses", json={
+            "expense_date": "2026-07-16", "category": "Marketing", "description": "Banner printing",
+            "amount": "1000", "gst_percent": "18", "vendor_id": None, "mode": "Cash", "reference_number": "", "notes": "",
+        })
+        assert created.status_code == 201, created.text
+        expense = created.json()
+        entries = _journal_entries_for(client, "Expense", expense["id"])
+        assert len(entries) == 1
+        _assert_balanced(entries[0])
+        assert any(l["account"]["code"] == "5150" for l in entries[0]["lines"])
+
+        updated = client.put(f"/api/expenses/{expense['id']}", json={
+            "expense_date": "2026-07-16", "category": "Rent", "description": "Corrected to rent",
+            "amount": "1000", "gst_percent": "18", "vendor_id": None, "mode": "Cash", "reference_number": "", "notes": "",
+        })
+        assert updated.status_code == 200, updated.text
+        entries_after_update = _journal_entries_for(client, "Expense", expense["id"])
+        assert len(entries_after_update) == 1
+        _assert_balanced(entries_after_update[0])
+        assert any(l["account"]["code"] == "5100" for l in entries_after_update[0]["lines"])
+
+        deleted = client.delete(f"/api/expenses/{expense['id']}")
+        assert deleted.status_code == 204, deleted.text
+        assert not _journal_entries_for(client, "Expense", expense["id"])
+
+
+def test_trial_balance_is_balanced():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client)
+        client.post(f"/api/invoices/{invoice['id']}/payments", json={
+            "payment_date": "2026-07-16", "mode": "UPI", "reference_number": "TB1", "amount": "2000", "received_by": "Admin", "notes": "",
+        })
+        vendor = _create_vendor(client, name="Trial Balance Vendor")
+        _create_purchase_bill(client, vendor["id"])
+        client.post("/api/expenses", json={
+            "expense_date": "2026-07-16", "category": "Utilities", "description": "Power bill",
+            "amount": "500", "gst_percent": "0", "vendor_id": None, "mode": "Cash", "reference_number": "", "notes": "",
+        })
+
+        rows = client.get("/api/trial-balance").json()
+        assert rows
+        total_debit = sum(Decimal(r["debit"]) for r in rows)
+        total_credit = sum(Decimal(r["credit"]) for r in rows)
+        assert total_debit == total_credit
