@@ -35,6 +35,60 @@ CASH_FLOW_SOURCE_LABELS = {
 }
 INVESTING_SOURCE_TYPES = {"FixedAsset", "FixedAssetDisposal"}
 
+# Standard CBIC/GST state codes (used as the "pos" / place-of-supply field in the GSTN
+# return JSON). This table is entered from general knowledge, not fetched from an
+# authoritative source at runtime - cross-check it against the current official list
+# (gst.gov.in) before relying on it for a real filing.
+GST_STATE_CODES = {
+    "Jammu and Kashmir": "01",
+    "Himachal Pradesh": "02",
+    "Punjab": "03",
+    "Chandigarh": "04",
+    "Uttarakhand": "05",
+    "Haryana": "06",
+    "Delhi": "07",
+    "Rajasthan": "08",
+    "Uttar Pradesh": "09",
+    "Bihar": "10",
+    "Sikkim": "11",
+    "Arunachal Pradesh": "12",
+    "Nagaland": "13",
+    "Manipur": "14",
+    "Mizoram": "15",
+    "Tripura": "16",
+    "Meghalaya": "17",
+    "Assam": "18",
+    "West Bengal": "19",
+    "Jharkhand": "20",
+    "Odisha": "21",
+    "Chhattisgarh": "22",
+    "Madhya Pradesh": "23",
+    "Gujarat": "24",
+    "Dadra and Nagar Haveli and Daman and Diu": "26",
+    "Maharashtra": "27",
+    "Karnataka": "29",
+    "Goa": "30",
+    "Lakshadweep": "31",
+    "Kerala": "32",
+    "Tamil Nadu": "33",
+    "Puducherry": "34",
+    "Andaman and Nicobar Islands": "35",
+    "Telangana": "36",
+    "Andhra Pradesh": "37",
+    "Ladakh": "38",
+}
+
+
+def _place_of_supply_code(customer_gstin: str, customer_state: str, business_state: str) -> str:
+    gstin = (customer_gstin or "").strip()
+    if len(gstin) >= 2 and gstin[:2].isdigit():
+        return gstin[:2]
+    if customer_state in GST_STATE_CODES:
+        return GST_STATE_CODES[customer_state]
+    if business_state in GST_STATE_CODES:
+        return GST_STATE_CODES[business_state]
+    return "00"
+
 
 def _account_totals(db: Session, code: str, from_date: date | None, to_date: date | None) -> tuple[Decimal, Decimal]:
     account = db.scalar(select(models.ChartOfAccount).where(models.ChartOfAccount.code == code))
@@ -230,6 +284,169 @@ def gstr1_report(db: Session, from_date: date, to_date: date) -> dict:
             "b2b_taxable_value": float(money(sum((Decimal(str(r["taxable_value"])) for r in b2b), Decimal("0")))),
             "b2c_taxable_value": float(money(sum((Decimal(str(r["taxable_value"])) for r in b2c), Decimal("0")))),
         },
+    }
+
+
+def gstr1_offline_json(db: Session, from_date: date, to_date: date) -> dict:
+    """GSTR-1 in the JSON shape the GST portal's offline return tool expects for
+    upload (gstin/fp/b2b/b2cs/cdnr/hsn). Intended for a single return period - pass
+    from_date/to_date spanning one calendar month; fp is derived from from_date."""
+    settings = db.get(models.BusinessSettings, 1)
+    business_gstin = (settings.gst_number if settings else "") or ""
+    business_state = (settings.state if settings else "") or ""
+    fp = from_date.strftime("%m%Y")
+
+    invoices = db.scalars(
+        select(models.Invoice)
+        .options(joinedload(models.Invoice.customer))
+        .where(
+            models.Invoice.status != "Cancelled",
+            models.Invoice.quotation_id.is_not(None),  # excludes synthetic opening-balance invoices
+            models.Invoice.invoice_date >= from_date,
+            models.Invoice.invoice_date <= to_date,
+        )
+    ).unique().all()
+
+    b2b_by_gstin: dict[str, list[dict]] = {}
+    b2cs_buckets: dict[tuple, dict] = {}
+
+    for invoice in invoices:
+        total_tax = Decimal(invoice.cgst) + Decimal(invoice.sgst) + Decimal(invoice.igst)
+        taxable = money(Decimal(invoice.grand_total) - total_tax)
+        rate = float(money(total_tax / taxable * 100)) if taxable > 0 else 0.0
+        pos = _place_of_supply_code(invoice.customer.gst_number, invoice.customer.state, business_state)
+        item = {"num": 1, "itm_det": {"rt": rate, "txval": float(taxable), "iamt": float(invoice.igst), "camt": float(invoice.cgst), "samt": float(invoice.sgst), "csamt": 0.0}}
+
+        if invoice.customer.gst_number:
+            inv = {
+                "inum": invoice.number,
+                "idt": invoice.invoice_date.strftime("%d-%m-%Y"),
+                "val": float(invoice.grand_total),
+                "pos": pos,
+                "rchrg": "N",
+                "inv_typ": "R",
+                "itms": [item],
+            }
+            b2b_by_gstin.setdefault(invoice.customer.gst_number, []).append(inv)
+        else:
+            sply_ty = "INTER" if Decimal(invoice.igst) > 0 else "INTRA"
+            key = (sply_ty, pos, rate)
+            bucket = b2cs_buckets.setdefault(key, {"sply_ty": sply_ty, "pos": pos, "typ": "OE", "rt": rate, "txval": Decimal("0"), "iamt": Decimal("0"), "camt": Decimal("0"), "samt": Decimal("0")})
+            bucket["txval"] += taxable
+            bucket["iamt"] += Decimal(invoice.igst)
+            bucket["camt"] += Decimal(invoice.cgst)
+            bucket["samt"] += Decimal(invoice.sgst)
+
+    b2b = [{"ctin": gstin, "inv": invs} for gstin, invs in b2b_by_gstin.items()]
+    b2cs = [
+        {"sply_ty": b["sply_ty"], "pos": b["pos"], "typ": b["typ"], "rt": b["rt"], "txval": float(money(b["txval"])), "iamt": float(money(b["iamt"])), "camt": float(money(b["camt"])), "samt": float(money(b["samt"]))}
+        for b in b2cs_buckets.values()
+    ]
+
+    credit_notes = db.scalars(
+        select(models.CreditNote)
+        .options(joinedload(models.CreditNote.customer), joinedload(models.CreditNote.invoice))
+        .where(models.CreditNote.status != "Cancelled", models.CreditNote.note_date >= from_date, models.CreditNote.note_date <= to_date)
+    ).unique().all()
+    debit_notes = db.scalars(
+        select(models.DebitNote)
+        .options(joinedload(models.DebitNote.customer), joinedload(models.DebitNote.invoice))
+        .where(models.DebitNote.status != "Cancelled", models.DebitNote.note_date >= from_date, models.DebitNote.note_date <= to_date)
+    ).unique().all()
+
+    cdnr_by_gstin: dict[str, list[dict]] = {}
+    for ntty, notes in (("C", credit_notes), ("D", debit_notes)):
+        for note in notes:
+            if not note.customer.gst_number:
+                continue  # unregistered-recipient notes (CDNUR) are a separate section, not modeled here
+            interstate = Decimal(note.invoice.igst or 0) > 0
+            gst = money(note.gst)
+            if interstate:
+                iamt, camt, samt = float(gst), 0.0, 0.0
+            else:
+                half = money(gst / 2)
+                iamt, camt, samt = 0.0, float(half), float(money(gst - half))
+            rate = float(money(gst / note.subtotal * 100)) if Decimal(note.subtotal) > 0 else 0.0
+            pos = _place_of_supply_code(note.customer.gst_number, note.customer.state, business_state)
+            nt = {
+                "ntty": ntty,
+                "nt_num": note.number,
+                "nt_dt": note.note_date.strftime("%d-%m-%Y"),
+                "val": float(note.grand_total),
+                "pos": pos,
+                "rchrg": "N",
+                "inv_typ": "R",
+                "itms": [{"num": 1, "itm_det": {"rt": rate, "txval": float(note.subtotal), "iamt": iamt, "camt": camt, "samt": samt, "csamt": 0.0}}],
+            }
+            cdnr_by_gstin.setdefault(note.customer.gst_number, []).append(nt)
+    cdnr = [{"ctin": gstin, "nt": notes} for gstin, notes in cdnr_by_gstin.items()]
+
+    hsn_rows: dict[str, dict] = {}
+
+    invoice_items = db.scalars(
+        select(models.InvoiceItem)
+        .join(models.Invoice)
+        .options(joinedload(models.InvoiceItem.invoice))
+        .where(
+            models.Invoice.status != "Cancelled",
+            models.Invoice.quotation_id.is_not(None),
+            models.Invoice.invoice_date >= from_date,
+            models.Invoice.invoice_date <= to_date,
+        )
+    ).all()
+
+    def _apply(hsn_code: str, category: str, unit: str, quantity, amount, gst_percent, interstate: bool, sign: int) -> None:
+        tax = money(Decimal(amount) * Decimal(gst_percent) / Decimal("100"))
+        if interstate:
+            iamt, camt, samt = tax, Decimal("0"), Decimal("0")
+        else:
+            camt = money(tax / 2)
+            iamt, samt = Decimal("0"), money(tax - camt)
+        key = hsn_code or "(No HSN)"
+        row = hsn_rows.setdefault(key, {"hsn_sc": key, "desc": category or "", "uqc": (unit or "OTH").upper()[:3], "qty": Decimal("0"), "val": Decimal("0"), "txval": Decimal("0"), "iamt": Decimal("0"), "camt": Decimal("0"), "samt": Decimal("0")})
+        row["qty"] += sign * Decimal(quantity)
+        row["txval"] += sign * Decimal(amount)
+        row["val"] += sign * (Decimal(amount) + tax)
+        row["iamt"] += sign * iamt
+        row["camt"] += sign * camt
+        row["samt"] += sign * samt
+
+    for item in invoice_items:
+        interstate = Decimal(item.invoice.igst or 0) > 0
+        _apply(item.hsn_code, item.category, item.unit, item.quantity, item.amount, item.gst_percent, interstate, 1)
+
+    credit_note_items = db.scalars(
+        select(models.CreditNoteItem).join(models.CreditNote).options(joinedload(models.CreditNoteItem.credit_note).joinedload(models.CreditNote.invoice))
+        .where(models.CreditNote.status != "Cancelled", models.CreditNote.note_date >= from_date, models.CreditNote.note_date <= to_date)
+    ).all()
+    for item in credit_note_items:
+        interstate = Decimal(item.credit_note.invoice.igst or 0) > 0
+        _apply(item.hsn_code, item.category, item.unit, item.quantity, item.amount, item.gst_percent, interstate, -1)
+
+    debit_note_items = db.scalars(
+        select(models.DebitNoteItem).join(models.DebitNote).options(joinedload(models.DebitNoteItem.debit_note).joinedload(models.DebitNote.invoice))
+        .where(models.DebitNote.status != "Cancelled", models.DebitNote.note_date >= from_date, models.DebitNote.note_date <= to_date)
+    ).all()
+    for item in debit_note_items:
+        interstate = Decimal(item.debit_note.invoice.igst or 0) > 0
+        _apply(item.hsn_code, item.category, item.unit, item.quantity, item.amount, item.gst_percent, interstate, 1)
+
+    hsn_data = [
+        {
+            "num": i + 1, "hsn_sc": row["hsn_sc"], "desc": row["desc"], "uqc": row["uqc"],
+            "qty": float(row["qty"]), "val": float(money(row["val"])), "txval": float(money(row["txval"])),
+            "iamt": float(money(row["iamt"])), "camt": float(money(row["camt"])), "samt": float(money(row["samt"])), "csamt": 0.0,
+        }
+        for i, row in enumerate(sorted(hsn_rows.values(), key=lambda r: r["hsn_sc"]))
+    ]
+
+    return {
+        "gstin": business_gstin,
+        "fp": fp,
+        "b2b": b2b,
+        "b2cs": b2cs,
+        "cdnr": cdnr,
+        "hsn": {"data": hsn_data},
     }
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO, StringIO
@@ -18,7 +19,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from . import models, schemas
 from .database import Base, DEFAULT_DB_PATH, SessionLocal, engine, get_db
-from .gst_reports import ap_aging_report, balance_sheet_report, cash_flow_statement, gstr1_report, gstr3b_report, hsn_summary_report, profit_and_loss_report, purchase_register, sales_register
+from .gst_reports import ap_aging_report, balance_sheet_report, cash_flow_statement, gstr1_offline_json, gstr1_report, gstr3b_report, hsn_summary_report, profit_and_loss_report, purchase_register, sales_register
 from .opening_balances import commit_opening_balances, preview_opening_balances
 from .party_import import commit_customer_import, commit_vendor_import, preview_customer_import, preview_vendor_import
 from .pdf import build_credit_note_pdf, build_debit_note_pdf, build_invoice_pdf, build_payment_receipt_pdf, build_purchase_bill_pdf, build_quotation_pdf
@@ -1004,6 +1005,13 @@ def _csv_response(rows: list[dict], filename: str) -> StreamingResponse:
 @app.get("/api/gst/gstr1")
 def gstr1(from_date: date = Query(...), to_date: date = Query(...), db: Session = Depends(get_db)):
     return gstr1_report(db, from_date, to_date)
+
+
+@app.get("/api/gst/gstr1/json")
+def gstr1_json(from_date: date = Query(...), to_date: date = Query(...), db: Session = Depends(get_db)):
+    payload = gstr1_offline_json(db, from_date, to_date)
+    body = json.dumps(payload, indent=2)
+    return StreamingResponse(iter([body]), media_type="application/json", headers={"Content-Disposition": f'attachment; filename="gstr1-{from_date}-to-{to_date}.json"'})
 
 
 @app.get("/api/gst/gstr3b")

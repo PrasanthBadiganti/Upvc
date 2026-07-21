@@ -52,7 +52,11 @@ export default function GstReports() {
         <Field label="From Date"><Input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} /></Field>
         <Field label="To Date"><Input type="date" value={toDate} onChange={e => setToDate(e.target.value)} /></Field>
       </div>
-      <div className="form-actions"><Button onClick={load}>Run Reports</Button></div>
+      <div className="form-actions">
+        <Button onClick={load}>Run Reports</Button>
+        <Button tone="secondary" onClick={() => downloadCsv('gst/gstr1/json', `gstr1-${fromDate}-to-${toDate}.json`)}><Download size={14} /> Download GSTR-1 JSON</Button>
+      </div>
+      <p className="muted" style={{ marginTop: 8, fontSize: 12.5 }}>GSTR-1 JSON is in the GST portal's offline-tool upload format (b2b/b2cs/cdnr/hsn). Validate it against the offline tool before relying on it for a real filing — GSTN updates this schema periodically.</p>
     </Card>
 
     {loading ? <Loading /> : gstr1 && gstr3b && <>

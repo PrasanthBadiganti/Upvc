@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from app import models
 from app.database import SessionLocal
+from app.gst_reports import GST_STATE_CODES
 from app.main import app
 
 
@@ -1942,3 +1943,96 @@ def test_ap_aging_excludes_paid_bills():
 
         aging = client.get("/api/ap-aging", params={"as_of": "2026-09-01"}).json()
         assert not any(r["vendor_id"] == vendor["id"] for r in aging["rows"])
+
+
+def test_gstr1_json_export_groups_b2b_by_gstin_with_correct_pos_and_split():
+    with TestClient(app) as client:
+        customer = _create_customer(client, "JSON B2B Buyer", state="Punjab")
+        client.put(f"/api/customers/{customer['id']}", json={**customer, "gst_number": "03PUNJABJSON1Z5"})
+        invoice = _create_invoice_for_customer(client, customer["id"])
+
+        resp = client.get("/api/gst/gstr1/json", params=PERIOD)
+        assert resp.status_code == 200, resp.text
+        payload = resp.json()
+        assert set(payload.keys()) >= {"gstin", "fp", "b2b", "b2cs", "cdnr", "hsn"}
+        assert payload["fp"] == "012026"
+
+        b2b_entry = next(b for b in payload["b2b"] if b["ctin"] == "03PUNJABJSON1Z5")
+        inv = next(i for i in b2b_entry["inv"] if i["inum"] == invoice["number"])
+        assert inv["pos"] == "03"
+        item = inv["itms"][0]["itm_det"]
+        assert item["iamt"] > 0
+        assert item["camt"] == 0
+        assert item["samt"] == 0
+        assert round(item["txval"] + item["iamt"], 2) == round(inv["val"], 2)
+
+
+def test_gstr1_json_export_buckets_b2cs_for_unregistered_intrastate_customer():
+    with TestClient(app) as client:
+        business_state = client.get("/api/business-settings").json()["state"]
+        customer = _create_customer(client, "JSON B2C Buyer", state=business_state)
+        invoice = _create_invoice_for_customer(client, customer["id"])
+
+        payload = client.get("/api/gst/gstr1/json", params=PERIOD).json()
+        assert not any(customer.get("gst_number") == b["ctin"] for b in payload["b2b"])
+        bucket = next(b for b in payload["b2cs"] if b["sply_ty"] == "INTRA" and b["pos"] == GST_STATE_CODES.get(business_state))
+        assert bucket["iamt"] == 0
+        assert bucket["camt"] > 0
+        assert bucket["samt"] > 0
+        assert bucket["txval"] >= float(Decimal(invoice["subtotal"]))
+
+
+def test_gstr1_json_export_includes_credit_note_in_cdnr():
+    with TestClient(app) as client:
+        customer = _create_customer(client, "JSON CDNR Buyer", state="Karnataka")
+        client.put(f"/api/customers/{customer['id']}", json={**customer, "gst_number": "29KARNATAKAJSON1"})
+        invoice = _create_invoice_for_customer(client, customer["id"])
+        credit_note = client.post(f"/api/invoices/{invoice['id']}/credit-notes", json={
+            "note_date": "2026-02-01", "reason": "Return", "items": [{
+                "description": "Partial return", "category": "Sliding Window", "hsn_code": "3925.20.00",
+                "unit": "Sq. Ft.", "quantity": "1", "rate": "1000", "gst_percent": "18", "amount": "1000",
+            }],
+        })
+        assert credit_note.status_code == 201, credit_note.text
+
+        payload = client.get("/api/gst/gstr1/json", params=PERIOD).json()
+        cdnr_entry = next(c for c in payload["cdnr"] if c["ctin"] == "29KARNATAKAJSON1")
+        note = next(n for n in cdnr_entry["nt"] if n["nt_num"] == credit_note.json()["number"])
+        assert note["ntty"] == "C"
+        assert note["itms"][0]["itm_det"]["txval"] == 1000.0
+
+
+def test_gstr1_json_export_hsn_section_matches_summary_taxable_value():
+    with TestClient(app) as client:
+        customer = _create_customer(client, "JSON HSN Buyer", state="Tamil Nadu")
+        _create_invoice_for_customer(client, customer["id"], hsn_code="7005.10.00")
+
+        payload = client.get("/api/gst/gstr1/json", params=PERIOD).json()
+        summary = client.get("/api/gst/hsn-summary", params=PERIOD).json()
+        json_row = next(r for r in payload["hsn"]["data"] if r["hsn_sc"] == "7005.10.00")
+        summary_row = next(r for r in summary if r["hsn_code"] == "7005.10.00")
+        assert round(json_row["txval"], 2) == round(summary_row["taxable_value"], 2)
+
+
+def test_gstr1_json_export_hsn_section_nets_out_credit_notes():
+    with TestClient(app) as client:
+        customer = _create_customer(client, "JSON HSN Netting Buyer", state="Maharashtra")
+        client.put(f"/api/customers/{customer['id']}", json={**customer, "gst_number": "27NETTINGJSON1Z5"})
+        invoice = _create_invoice_for_customer(client, customer["id"], hsn_code="9403.90.00")
+        before = client.get("/api/gst/gstr1/json", params=PERIOD).json()
+        before_row = next(r for r in before["hsn"]["data"] if r["hsn_sc"] == "9403.90.00")
+
+        credit_note = client.post(f"/api/invoices/{invoice['id']}/credit-notes", json={
+            "note_date": "2026-02-01", "reason": "Return", "items": [{
+                "description": "Partial return", "category": "Sliding Window", "hsn_code": "9403.90.00",
+                "unit": "Sq. Ft.", "quantity": "1", "rate": "1000", "gst_percent": "18", "amount": "1000",
+            }],
+        })
+        assert credit_note.status_code == 201, credit_note.text
+
+        after = client.get("/api/gst/gstr1/json", params=PERIOD).json()
+        after_row = next(r for r in after["hsn"]["data"] if r["hsn_sc"] == "9403.90.00")
+        assert round(before_row["txval"] - after_row["txval"], 2) == 1000.0
+        summary = client.get("/api/gst/hsn-summary", params=PERIOD).json()
+        summary_row = next(r for r in summary if r["hsn_code"] == "9403.90.00")
+        assert round(after_row["txval"], 2) == round(summary_row["taxable_value"], 2)
