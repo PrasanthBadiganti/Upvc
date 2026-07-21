@@ -11,6 +11,21 @@ from .schemas import QuotationCreate, QuotationItemPayload
 from .services import convert_quotation_to_invoice, create_quotation, record_payment
 
 
+# Representative HSN codes (3925.20.00 = plastic doors/windows/frames, 7007.19.00 = toughened
+# safety glass, 3925.90.00 = other builders' ware of plastics) - not fetched from an authoritative
+# source, confirm against the client's actual HSN master / CA before relying on them for filing.
+CATALOG_HSN_CODES = {
+    "Sliding Window": "3925.20.00",
+    "Casement Window": "3925.20.00",
+    "French Door": "3925.20.00",
+    "Sliding Door": "3925.20.00",
+    "Ventilator": "3925.20.00",
+    "Fixed Glass": "7007.19.00",
+    "Mosquito Mesh": "3925.90.00",
+    "Toughened Glass Partition": "7007.19.00",
+}
+
+
 DEFAULT_CHART_OF_ACCOUNTS = [
     ("1000", "Cash", "Asset", "Current Assets"),
     ("1010", "Bank", "Asset", "Current Assets"),
@@ -59,6 +74,7 @@ def seed_database(db: Session) -> None:
         ensure_business_settings(db)
         backfill_customer_details(db)
         backfill_catalog_details(db)
+        backfill_line_item_hsn(db)
         return
 
     now = datetime.now().replace(second=0, microsecond=0)
@@ -136,6 +152,7 @@ def seed_database(db: Session) -> None:
     db.commit()
     backfill_customer_details(db)
     backfill_catalog_details(db)
+    backfill_line_item_hsn(db)
     ensure_business_settings(db)
 
 
@@ -195,9 +212,26 @@ def backfill_catalog_details(db: Session) -> None:
             "gst_percent": gst_percent,
             "installation_rate": installation_rate,
             "rounding_rule": "Round up",
+            "hsn_code": CATALOG_HSN_CODES.get(item.name, ""),
         }.items():
             if not getattr(item, field):
                 setattr(item, field, value)
                 changed = True
+    if changed:
+        db.commit()
+
+
+def backfill_line_item_hsn(db: Session) -> None:
+    changed = False
+    for item in db.scalars(select(models.QuotationItem)).all():
+        code = CATALOG_HSN_CODES.get(item.category)
+        if code and not item.hsn_code:
+            item.hsn_code = code
+            changed = True
+    for item in db.scalars(select(models.InvoiceItem)).all():
+        code = CATALOG_HSN_CODES.get(item.category)
+        if code and not item.hsn_code:
+            item.hsn_code = code
+            changed = True
     if changed:
         db.commit()

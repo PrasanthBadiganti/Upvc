@@ -2036,3 +2036,38 @@ def test_gstr1_json_export_hsn_section_nets_out_credit_notes():
         summary = client.get("/api/gst/hsn-summary", params=PERIOD).json()
         summary_row = next(r for r in summary if r["hsn_code"] == "9403.90.00")
         assert round(after_row["txval"], 2) == round(summary_row["taxable_value"], 2)
+
+
+def test_quotation_item_sft_rounds_up_to_whole_number_from_dimensions():
+    with TestClient(app) as client:
+        customers = client.get("/api/customers").json()
+        payload = {
+            "customer_id": customers[0]["id"],
+            "quotation_date": "2026-07-21",
+            "validity_days": 30,
+            "sales_person": "Arun Verma",
+            "site_location": "Round Off Test Site",
+            "address": "Test Address",
+            "status": "Draft",
+            "transport": "0",
+            "discount": "0",
+            "notes": "Round off test",
+            "items": [{
+                "category": "Sliding Window",
+                "style": "2 Track",
+                "width_mm": "3688.08",
+                "height_mm": "4693.92",
+                "sft": "0",
+                "quantity": 1,
+                "total_sft": "0",
+                "rate_per_sft": "1000",
+                "amount": "0",
+                "location": "Hall"
+            }]
+        }
+        quote = client.post("/api/quotations", json=payload)
+        assert quote.status_code == 201, quote.text
+        item = quote.json()["items"][0]
+        assert Decimal(item["sft"]) == Decimal("187.00")
+        assert Decimal(item["total_sft"]) == Decimal("187.00")
+        assert Decimal(item["amount"]) == Decimal("187000.00")

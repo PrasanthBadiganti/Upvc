@@ -70,7 +70,7 @@ export default function CreateQuotation() {
       if(i!==index) return row;
       const stringFields = ['category','style','location','profile','color','track','glass','glass_color','hardware','reinforcement','mesh','hsn_code'];
       const next={...row,[key]: typeof value==='string' && stringFields.includes(String(key)) ? value : Number(value)} as QuotationItem;
-      if(['width_mm','height_mm'].includes(String(key))) next.sft = Math.max(0, Number(((next.width_mm/304.8)*(next.height_mm/304.8)).toFixed(2)));
+      if(['width_mm','height_mm'].includes(String(key))) next.sft = Math.max(0, Math.ceil((next.width_mm/304.8)*(next.height_mm/304.8)));
       const selectedCatalog = catalog.find(item => item.id === next.catalog_item_id);
       const minSft = Number(selectedCatalog?.min_billable_sft || 0);
       next.total_sft = Number((Math.max(Number(next.sft || 0), minSft)*next.quantity).toFixed(2));
@@ -84,7 +84,7 @@ export default function CreateQuotation() {
     if(!selectedItem) return;
     setItems(prev=>prev.map((row,i)=>{
       if(i!==index) return row;
-      const sft = Number(row.sft || ((row.width_mm/304.8)*(row.height_mm/304.8)).toFixed(2));
+      const sft = Number(row.sft || Math.ceil((row.width_mm/304.8)*(row.height_mm/304.8)));
       const totalSft = Number((Math.max(sft, Number(selectedItem.min_billable_sft || 0))*row.quantity).toFixed(2));
       return {
         ...row,

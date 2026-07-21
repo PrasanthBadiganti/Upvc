@@ -1,6 +1,6 @@
 # UPVC Pro Project Status
 
-Last updated: 2026-07-21 (GSTR-1 offline JSON export added)
+Last updated: 2026-07-22 (SFT round-off billing rule + HSN display fix and data backfill)
 
 This is the go-to project reference for continuing development. Read this before changing code.
 
@@ -28,7 +28,7 @@ Backend:
 - Pydantic 2
 - SQLite
 - ReportLab (PDF generation)
-- Pytest (75 backend tests, `backend/tests/test_core.py`)
+- Pytest (81 backend tests, `backend/tests/test_core.py`)
 
 Frontend:
 
@@ -98,7 +98,7 @@ Desktop database: `%LOCALAPPDATA%\UPVC Pro\upvc_pro.db` (fallback `%USERPROFILE%
 ### Sales & CRM
 
 - Customer CRUD, search (name/phone/email), status filter, salesperson filter, CSV/Tally-XML import with opening-balance support.
-- Quotation builder: multi-item, SFT calculation, catalog-linked items, draft/send/duplicate/revise, PDF, convert to invoice (idempotent — re-converting returns the existing invoice).
+- Quotation builder: multi-item, SFT calculation (width x height rounds **up** to the next whole square foot before pricing — not to 2 decimal places — matching how the business actually bills, e.g. 12.1ft x 15.4ft = 186.34 sqft bills as 187 sqft), catalog-linked items, draft/send/duplicate/revise, PDF, convert to invoice (idempotent — re-converting returns the existing invoice).
 - Invoice lifecycle: Unpaid/Partially Paid/Paid/Cancelled, cancel with force-rule for paid invoices, reopen, PDF.
 - Payments: multiple partial payments per invoice, guards against zero/negative/overpayment/payment-on-cancelled-invoice, receipt PDF.
 - Credit Notes and Debit Notes against invoices, with their own cancel lifecycle and GST-correct reversing journal entries.
@@ -203,26 +203,28 @@ Database path: `backend/upvc_pro.db` (local) / `%LOCALAPPDATA%\UPVC Pro\upvc_pro
 
 ## Verification Status
 
-Last verified: 2026-07-21.
+Last verified: 2026-07-22.
 
-- **80 backend tests passing** (`backend/tests/test_core.py`), covering every module below.
-- Every phase in the list was verified live against the running dev database in a browser, not just against pytest's fresh test database — this caught real wiring bugs pytest alone missed: a missing `ensure_schema()` migration entry, a currency-symbol formatting bug on stock quantities, and (this phase) the GSTR-1 JSON export's HSN section disagreeing with the on-screen HSN Summary because it wasn't netting out credit/debit notes.
+- **81 backend tests passing** (`backend/tests/test_core.py`), covering every module below.
+- Every phase in the list was verified live against the running dev database in a browser, not just against pytest's fresh test database — this caught real wiring bugs pytest alone missed: a missing `ensure_schema()` migration entry, a currency-symbol formatting bug on stock quantities, the GSTR-1 JSON export's HSN section disagreeing with the on-screen HSN Summary because it wasn't netting out credit/debit notes, and (this phase) the Quotation Details page having no HSN column at all.
 - Phases completed, most recent first:
-  1. **GSTR-1 offline JSON export** — GST-portal upload-format JSON (see GST Filing Reports above).
-  2. **Punch-list cleanup** — removed all remaining hardcoded/fabricated UI (fake dashboard trend %, fake Followups metrics fallback numbers, fake "Recent Activity" feed, dead search/date-range/notification chrome, sidebar ignoring Business Settings) and replaced with real computed values or honest removal.
-  3. **Cash Flow Statement + AP Aging.**
-  4. **Inventory / Stock Tracking**, including auto-stock-in from purchase bills.
-  5. **Financial Year Management** with ledger period-locking.
-  6. **Fixed Assets & Depreciation** (SLM/WDV, disposal gain/loss).
-  7. **Manual Journal Entries** with reversal.
-  8. **IGST / interstate GST support** across invoices, purchase bills, credit/debit notes, GST reports, PDFs, Tally export.
-  9. **Data migration**: Opening Balances import, Tally ledger-master XML import (customers + vendors).
-  10. **CSV import** for customers and vendors.
-  11. **GST filing reports** (GSTR-1, GSTR-3B, HSN summary, registers) + **Tally export** + **P&L/Balance Sheet**.
-  12. **General Ledger**: Chart of Accounts, auto-posting journal engine, account ledger, trial balance.
-  13. **Vendors / Purchase Bills / Expenses.**
-  14. **HSN codes + Credit/Debit Notes.**
-  15. Everything in the original README brief below "Completed modules" (Dashboard, Customers, Catalog, Quotations, Quotation→Invoice conversion, Invoices, Payments, Follow-ups, Reports, Settings, PDF generation) — all since fully DB-wired; see the punch-list cleanup phase above for what was still fake as of 2026-07-21 and has since been fixed.
+  1. **SFT round-off billing rule** — quotation item SFT auto-calculated from width x height now rounds **up** to the next whole square foot before pricing (`ROUND_CEILING` in the backend fallback calc, `Math.ceil` in the live frontend calc), not to 2 decimal places, matching real UPVC billing practice. Locked in with a regression test using the client's own example (12.1ft x 15.4ft = 186.34 sqft -> bills as 187).
+  2. **HSN display fix + line-item data backfill** — `QuotationDetails.tsx` (the saved-quotation view page) was missing an HSN table column entirely; fixed. Separately, the original seed data never set `hsn_code` on Catalog items or the demo quotation/invoice, which is why HSN looked blank everywhere downstream even though the Create Quotation form, PDF generator, and Invoice Details page were all already correct. Added representative HSN codes (`CATALOG_HSN_CODES` in `seed.py`: 3925.20.00 for UPVC windows/doors, 7007.19.00 for toughened glass, 3925.90.00 for mesh — flagged in-code as needing confirmation against the client's actual HSN master) plus `backfill_line_item_hsn()`, a startup routine that patches existing Catalog/Quotation/Invoice rows in the live dev database without touching anything already set.
+  3. **GSTR-1 offline JSON export** — GST-portal upload-format JSON (see GST Filing Reports above).
+  4. **Punch-list cleanup** — removed all remaining hardcoded/fabricated UI (fake dashboard trend %, fake Followups metrics fallback numbers, fake "Recent Activity" feed, dead search/date-range/notification chrome, sidebar ignoring Business Settings) and replaced with real computed values or honest removal.
+  5. **Cash Flow Statement + AP Aging.**
+  6. **Inventory / Stock Tracking**, including auto-stock-in from purchase bills.
+  7. **Financial Year Management** with ledger period-locking.
+  8. **Fixed Assets & Depreciation** (SLM/WDV, disposal gain/loss).
+  9. **Manual Journal Entries** with reversal.
+  10. **IGST / interstate GST support** across invoices, purchase bills, credit/debit notes, GST reports, PDFs, Tally export.
+  11. **Data migration**: Opening Balances import, Tally ledger-master XML import (customers + vendors).
+  12. **CSV import** for customers and vendors.
+  13. **GST filing reports** (GSTR-1, GSTR-3B, HSN summary, registers) + **Tally export** + **P&L/Balance Sheet**.
+  14. **General Ledger**: Chart of Accounts, auto-posting journal engine, account ledger, trial balance.
+  15. **Vendors / Purchase Bills / Expenses.**
+  16. **HSN codes + Credit/Debit Notes.**
+  17. Everything in the original README brief below "Completed modules" (Dashboard, Customers, Catalog, Quotations, Quotation→Invoice conversion, Invoices, Payments, Follow-ups, Reports, Settings, PDF generation) — all since fully DB-wired; see the punch-list cleanup phase above for what was still fake as of 2026-07-21 and has since been fixed.
 
 ## Known Limitations / Not Yet Implemented
 
@@ -243,6 +245,7 @@ These are scope decisions, not defects — each was either explicitly deferred o
 - **Adding a column to an existing model requires two edits**, not one: the SQLAlchemy model in `models.py`, *and* an entry in the `ensure_schema()` migrations dict in `main.py`. Skipping the second one works fine against pytest's fresh-created test database and then 500s against the real dev database the first time it's exercised. This has happened twice in this project (the Stock Items `purchase_bill_items.stock_item_id` column, and originally documented as a risk pattern from the IGST phase).
 - **`expire_on_commit=False`** is set on the session factory. Any service function that re-loads an object it already touched earlier in the same call (e.g. `record_depreciation` loading the same `FixedAsset` twice) needs an explicit `db.expire_all()` before the second load, or SQLAlchemy will silently skip re-fetching relationships that were already loaded — this looks like a phantom empty list, not an error.
 - **`Customer.pending_payment` (and similarly derived fields) are recomputed on every read**, not stored authoritatively — never write to them directly from a new feature; create a real `Invoice`/`Payment` row instead, or the value will silently reset on the next list/profile fetch.
+- **Seed/demo data can silently lack fields added in a later phase** — e.g. `hsn_code` was never set on the original Catalog/Quotation/Invoice seed rows from early phases, so it looked "blank" everywhere downstream even though every display layer (form, PDF, details page) was already correctly wired. `seed.py` has a `backfill_*` function pattern (`backfill_catalog_details`, `backfill_line_item_hsn`, etc.) that runs on every startup and fills in blanks on already-existing rows without overwriting anything real — follow this pattern whenever a new required field needs to reach records created in an earlier phase, instead of hand-editing the live dev database.
 
 ## Development Rules
 

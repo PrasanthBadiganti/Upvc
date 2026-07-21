@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -29,8 +29,8 @@ def next_document_number(db: Session, model: type, prefix: str) -> str:
 
 def calculate_sft(width_mm: Decimal, height_mm: Decimal, minimum: Decimal = Decimal("0")) -> Decimal:
     raw = (Decimal(width_mm) / Decimal("304.8")) * (Decimal(height_mm) / Decimal("304.8"))
-    raw = raw.quantize(TWOPLACES, rounding=ROUND_HALF_UP)
-    return max(raw, Decimal(minimum)).quantize(TWOPLACES)
+    rounded = raw.quantize(Decimal("1"), rounding=ROUND_CEILING)
+    return max(rounded, Decimal(minimum)).quantize(TWOPLACES)
 
 
 def apply_quotation_payload(db: Session, quote: models.Quotation, payload: QuotationCreate) -> None:
