@@ -1,22 +1,39 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from . import models
 from .services import (
+    ACCOUNT_BANK,
+    ACCOUNT_CASH,
     ACCOUNT_INPUT_CGST,
+    ACCOUNT_INPUT_IGST,
     ACCOUNT_INPUT_SGST,
     ACCOUNT_OUTPUT_CGST,
+    ACCOUNT_OUTPUT_IGST,
     ACCOUNT_OUTPUT_SGST,
+    ACCOUNT_OWNERS_CAPITAL,
     ACCOUNT_SALES,
     ACCOUNT_SALES_RETURNS,
     list_chart_of_accounts,
     money,
 )
+
+CASH_FLOW_SOURCE_LABELS = {
+    "Payment": "Cash received from customers",
+    "VendorPayment": "Cash paid to vendors",
+    "Expense": "Cash paid for expenses",
+    "Manual": "Manual adjustments",
+    "ManualReversal": "Manual adjustment reversals",
+    "OpeningBalance": "Opening balances",
+    "FixedAsset": "Purchase of fixed assets",
+    "FixedAssetDisposal": "Proceeds from sale of fixed assets",
+}
+INVESTING_SOURCE_TYPES = {"FixedAsset", "FixedAssetDisposal"}
 
 
 def _account_totals(db: Session, code: str, from_date: date | None, to_date: date | None) -> tuple[Decimal, Decimal]:
@@ -39,16 +56,21 @@ def gstr3b_report(db: Session, from_date: date, to_date: date) -> dict:
     returns_debit, returns_credit = _account_totals(db, ACCOUNT_SALES_RETURNS, from_date, to_date)
     out_cgst_debit, out_cgst_credit = _account_totals(db, ACCOUNT_OUTPUT_CGST, from_date, to_date)
     out_sgst_debit, out_sgst_credit = _account_totals(db, ACCOUNT_OUTPUT_SGST, from_date, to_date)
+    out_igst_debit, out_igst_credit = _account_totals(db, ACCOUNT_OUTPUT_IGST, from_date, to_date)
     in_cgst_debit, in_cgst_credit = _account_totals(db, ACCOUNT_INPUT_CGST, from_date, to_date)
     in_sgst_debit, in_sgst_credit = _account_totals(db, ACCOUNT_INPUT_SGST, from_date, to_date)
+    in_igst_debit, in_igst_credit = _account_totals(db, ACCOUNT_INPUT_IGST, from_date, to_date)
 
     taxable_outward = money((sales_credit - sales_debit) - (returns_debit - returns_credit))
     output_cgst = money(out_cgst_credit - out_cgst_debit)
     output_sgst = money(out_sgst_credit - out_sgst_debit)
+    output_igst = money(out_igst_credit - out_igst_debit)
     input_cgst = money(in_cgst_debit - in_cgst_credit)
     input_sgst = money(in_sgst_debit - in_sgst_credit)
+    input_igst = money(in_igst_debit - in_igst_credit)
     net_cgst_payable = money(max(Decimal("0"), output_cgst - input_cgst))
     net_sgst_payable = money(max(Decimal("0"), output_sgst - input_sgst))
+    net_igst_payable = money(max(Decimal("0"), output_igst - input_igst))
 
     return {
         "period": {"from": from_date.isoformat(), "to": to_date.isoformat()},
@@ -56,17 +78,20 @@ def gstr3b_report(db: Session, from_date: date, to_date: date) -> dict:
             "taxable_value": float(taxable_outward),
             "cgst": float(output_cgst),
             "sgst": float(output_sgst),
-            "total_tax": float(money(output_cgst + output_sgst)),
+            "igst": float(output_igst),
+            "total_tax": float(money(output_cgst + output_sgst + output_igst)),
         },
         "eligible_itc": {
             "cgst": float(input_cgst),
             "sgst": float(input_sgst),
-            "total_itc": float(money(input_cgst + input_sgst)),
+            "igst": float(input_igst),
+            "total_itc": float(money(input_cgst + input_sgst + input_igst)),
         },
         "net_tax_payable": {
             "cgst": float(net_cgst_payable),
             "sgst": float(net_sgst_payable),
-            "total": float(money(net_cgst_payable + net_sgst_payable)),
+            "igst": float(net_igst_payable),
+            "total": float(money(net_cgst_payable + net_sgst_payable + net_igst_payable)),
         },
     }
 
@@ -86,6 +111,7 @@ def hsn_summary_report(db: Session, from_date: date, to_date: date) -> list[dict
     invoice_items = db.scalars(
         select(models.InvoiceItem).join(models.Invoice).where(
             models.Invoice.status != "Cancelled",
+            models.Invoice.quotation_id.is_not(None),  # excludes synthetic opening-balance invoices
             models.Invoice.invoice_date >= from_date,
             models.Invoice.invoice_date <= to_date,
         )
@@ -137,14 +163,20 @@ def gstr1_report(db: Session, from_date: date, to_date: date) -> dict:
     invoices = db.scalars(
         select(models.Invoice)
         .options(joinedload(models.Invoice.customer))
-        .where(models.Invoice.status != "Cancelled", models.Invoice.invoice_date >= from_date, models.Invoice.invoice_date <= to_date)
+        .where(
+            models.Invoice.status != "Cancelled",
+            models.Invoice.quotation_id.is_not(None),  # excludes synthetic opening-balance invoices
+            models.Invoice.invoice_date >= from_date,
+            models.Invoice.invoice_date <= to_date,
+        )
     ).unique().all()
 
     b2b = []
     b2c_buckets: dict[str, dict] = {}
     for invoice in invoices:
-        taxable = money(Decimal(invoice.grand_total) - Decimal(invoice.cgst) - Decimal(invoice.sgst))
-        rate = money((Decimal(invoice.cgst) + Decimal(invoice.sgst)) / taxable * 100) if taxable > 0 else Decimal("0")
+        total_tax = Decimal(invoice.cgst) + Decimal(invoice.sgst) + Decimal(invoice.igst)
+        taxable = money(Decimal(invoice.grand_total) - total_tax)
+        rate = money(total_tax / taxable * 100) if taxable > 0 else Decimal("0")
         if invoice.customer.gst_number:
             b2b.append({
                 "gstin": invoice.customer.gst_number,
@@ -156,16 +188,18 @@ def gstr1_report(db: Session, from_date: date, to_date: date) -> dict:
                 "rate": float(rate),
                 "cgst": float(invoice.cgst),
                 "sgst": float(invoice.sgst),
+                "igst": float(invoice.igst),
             })
         else:
             key = str(rate)
-            bucket = b2c_buckets.setdefault(key, {"rate": float(rate), "taxable_value": Decimal("0"), "cgst": Decimal("0"), "sgst": Decimal("0")})
+            bucket = b2c_buckets.setdefault(key, {"rate": float(rate), "taxable_value": Decimal("0"), "cgst": Decimal("0"), "sgst": Decimal("0"), "igst": Decimal("0")})
             bucket["taxable_value"] += taxable
             bucket["cgst"] += Decimal(invoice.cgst)
             bucket["sgst"] += Decimal(invoice.sgst)
+            bucket["igst"] += Decimal(invoice.igst)
 
     b2c = [
-        {"rate": b["rate"], "taxable_value": float(money(b["taxable_value"])), "cgst": float(money(b["cgst"])), "sgst": float(money(b["sgst"]))}
+        {"rate": b["rate"], "taxable_value": float(money(b["taxable_value"])), "cgst": float(money(b["cgst"])), "sgst": float(money(b["sgst"])), "igst": float(money(b["igst"]))}
         for b in b2c_buckets.values()
     ]
 
@@ -203,7 +237,11 @@ def sales_register(db: Session, from_date: date, to_date: date) -> list[dict]:
     invoices = db.scalars(
         select(models.Invoice)
         .options(joinedload(models.Invoice.customer))
-        .where(models.Invoice.invoice_date >= from_date, models.Invoice.invoice_date <= to_date)
+        .where(
+            models.Invoice.quotation_id.is_not(None),  # excludes synthetic opening-balance invoices
+            models.Invoice.invoice_date >= from_date,
+            models.Invoice.invoice_date <= to_date,
+        )
         .order_by(models.Invoice.invoice_date)
     ).unique().all()
     return [
@@ -212,9 +250,10 @@ def sales_register(db: Session, from_date: date, to_date: date) -> list[dict]:
             "number": invoice.number,
             "party": invoice.customer.name,
             "gstin": invoice.customer.gst_number or "-",
-            "taxable_value": float(money(Decimal(invoice.grand_total) - Decimal(invoice.cgst) - Decimal(invoice.sgst))),
+            "taxable_value": float(money(Decimal(invoice.grand_total) - Decimal(invoice.cgst) - Decimal(invoice.sgst) - Decimal(invoice.igst))),
             "cgst": float(invoice.cgst),
             "sgst": float(invoice.sgst),
+            "igst": float(invoice.igst),
             "total": float(invoice.grand_total),
             "status": invoice.status,
         }
@@ -239,6 +278,7 @@ def purchase_register(db: Session, from_date: date, to_date: date) -> list[dict]
             "taxable_value": float(bill.subtotal),
             "cgst": float(bill.cgst),
             "sgst": float(bill.sgst),
+            "igst": float(bill.igst),
             "total": float(bill.grand_total),
             "status": bill.status,
         }
@@ -312,4 +352,112 @@ def balance_sheet_report(db: Session, as_of_date: date) -> dict:
         "total_liabilities": float(total_liabilities),
         "total_equity": float(total_equity),
         "balanced": abs(float(total_assets) - float(total_liabilities_and_equity)) < 0.01,
+    }
+
+
+def cash_flow_statement(db: Session, from_date: date, to_date: date) -> dict:
+    cash_account_ids = {
+        a.id for a in db.scalars(select(models.ChartOfAccount).where(models.ChartOfAccount.code.in_([ACCOUNT_CASH, ACCOUNT_BANK]))).all()
+    }
+    cash_lines = []
+    if cash_account_ids:
+        stmt = (
+            select(models.JournalLine)
+            .join(models.JournalEntry)
+            .where(
+                models.JournalLine.account_id.in_(cash_account_ids),
+                models.JournalEntry.entry_date >= from_date,
+                models.JournalEntry.entry_date <= to_date,
+            )
+            .options(joinedload(models.JournalLine.entry).selectinload(models.JournalEntry.lines).joinedload(models.JournalLine.account))
+        )
+        cash_lines = db.scalars(stmt).unique().all()
+
+    operating: dict[str, Decimal] = {}
+    investing: dict[str, Decimal] = {}
+    financing: dict[str, Decimal] = {}
+
+    for line in cash_lines:
+        entry = line.entry
+        net = money(Decimal(line.debit) - Decimal(line.credit))
+        if net == 0:
+            continue
+        touches_capital = any(sibling.account.code == ACCOUNT_OWNERS_CAPITAL for sibling in entry.lines)
+        label = CASH_FLOW_SOURCE_LABELS.get(entry.source_type, entry.source_type or "Other")
+        if touches_capital:
+            bucket = financing
+        elif entry.source_type in INVESTING_SOURCE_TYPES:
+            bucket = investing
+        else:
+            bucket = operating
+        bucket[label] = bucket.get(label, Decimal("0")) + net
+
+    def _rows(bucket: dict[str, Decimal]) -> list[dict]:
+        return [{"label": label, "amount": float(money(amount))} for label, amount in sorted(bucket.items()) if amount != 0]
+
+    operating_total = money(sum(operating.values(), Decimal("0")))
+    investing_total = money(sum(investing.values(), Decimal("0")))
+    financing_total = money(sum(financing.values(), Decimal("0")))
+    net_change = money(operating_total + investing_total + financing_total)
+
+    opening_debit = opening_credit = Decimal("0")
+    for code in (ACCOUNT_CASH, ACCOUNT_BANK):
+        d, c = _account_totals(db, code, None, from_date - timedelta(days=1))
+        opening_debit += d
+        opening_credit += c
+    opening_balance = money(opening_debit - opening_credit)
+    closing_balance = money(opening_balance + net_change)
+
+    return {
+        "period": {"from": from_date.isoformat(), "to": to_date.isoformat()},
+        "operating_activities": {"rows": _rows(operating), "total": float(operating_total)},
+        "investing_activities": {"rows": _rows(investing), "total": float(investing_total)},
+        "financing_activities": {"rows": _rows(financing), "total": float(financing_total)},
+        "net_change_in_cash": float(net_change),
+        "opening_cash_balance": float(opening_balance),
+        "closing_cash_balance": float(closing_balance),
+    }
+
+
+def ap_aging_report(db: Session, as_of_date: date) -> dict:
+    stmt = (
+        select(models.PurchaseBill)
+        .where(models.PurchaseBill.status.in_(["Unpaid", "Partially Paid"]))
+        .options(joinedload(models.PurchaseBill.vendor))
+    )
+    bills = db.scalars(stmt).unique().all()
+
+    bucket_keys = ("current", "d1_30", "d31_60", "d61_90", "d90_plus")
+    by_vendor: dict[int, dict] = {}
+    totals = {key: Decimal("0") for key in bucket_keys}
+
+    for bill in bills:
+        pending = Decimal(bill.pending_balance or 0)
+        if pending <= 0:
+            continue
+        days_overdue = (as_of_date - bill.due_date).days
+        if days_overdue <= 0:
+            key = "current"
+        elif days_overdue <= 30:
+            key = "d1_30"
+        elif days_overdue <= 60:
+            key = "d31_60"
+        elif days_overdue <= 90:
+            key = "d61_90"
+        else:
+            key = "d90_plus"
+        row = by_vendor.setdefault(bill.vendor_id, {"vendor_id": bill.vendor_id, "vendor_name": bill.vendor.name, **{k: Decimal("0") for k in bucket_keys}})
+        row[key] += pending
+        totals[key] += pending
+
+    rows = []
+    for row in sorted(by_vendor.values(), key=lambda r: r["vendor_name"]):
+        total = money(sum((row[k] for k in bucket_keys), Decimal("0")))
+        rows.append({"vendor_id": row["vendor_id"], "vendor_name": row["vendor_name"], **{k: float(money(row[k])) for k in bucket_keys}, "total": float(total)})
+
+    grand_total = money(sum(totals.values(), Decimal("0")))
+    return {
+        "as_of": as_of_date.isoformat(),
+        "rows": rows,
+        "totals": {**{k: float(money(v)) for k, v in totals.items()}, "total": float(grand_total)},
     }

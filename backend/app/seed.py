@@ -17,12 +17,18 @@ DEFAULT_CHART_OF_ACCOUNTS = [
     ("1100", "Accounts Receivable", "Asset", "Current Assets"),
     ("1200", "Input CGST (ITC)", "Asset", "Duties & Taxes"),
     ("1210", "Input SGST (ITC)", "Asset", "Duties & Taxes"),
+    ("1220", "Input IGST (ITC)", "Asset", "Duties & Taxes"),
+    ("1500", "Fixed Assets (Gross Block)", "Asset", "Fixed Assets"),
+    ("1590", "Accumulated Depreciation", "Asset", "Fixed Assets"),
     ("2000", "Accounts Payable", "Liability", "Current Liabilities"),
     ("2100", "Output CGST Payable", "Liability", "Duties & Taxes"),
     ("2110", "Output SGST Payable", "Liability", "Duties & Taxes"),
+    ("2120", "Output IGST Payable", "Liability", "Duties & Taxes"),
     ("3000", "Owner's Capital", "Equity", "Capital Account"),
+    ("3800", "Opening Balance Equity", "Equity", "Capital Account"),
     ("4000", "Sales Revenue", "Income", "Direct Income"),
     ("4100", "Sales Returns & Allowances", "Income", "Direct Income"),
+    ("4200", "Gain/Loss on Asset Disposal", "Income", "Indirect Income"),
     ("5000", "Purchases", "Expense", "Direct Expenses"),
     ("5100", "Rent", "Expense", "Indirect Expenses"),
     ("5110", "Salaries", "Expense", "Indirect Expenses"),
@@ -32,6 +38,7 @@ DEFAULT_CHART_OF_ACCOUNTS = [
     ("5150", "Marketing", "Expense", "Indirect Expenses"),
     ("5160", "Professional Fees", "Expense", "Indirect Expenses"),
     ("5190", "Other Expenses", "Expense", "Indirect Expenses"),
+    ("5200", "Depreciation Expense", "Expense", "Indirect Expenses"),
 ]
 
 

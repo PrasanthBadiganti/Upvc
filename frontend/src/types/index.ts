@@ -6,6 +6,7 @@ export type Customer = {
   email: string;
   address: string;
   gst_number: string;
+  state: string;
   project_site: string;
   status: string;
   last_interaction?: string | null;
@@ -127,6 +128,7 @@ export type Invoice = {
   subtotal: number | string;
   cgst: number | string;
   sgst: number | string;
+  igst: number | string;
   grand_total: number | string;
   paid_amount: number | string;
   pending_balance: number | string;
@@ -199,6 +201,7 @@ export type Vendor = {
   email: string;
   address: string;
   gst_number: string;
+  state: string;
   status: string;
   pending_payment: number | string;
   notes: string;
@@ -223,6 +226,7 @@ export type PurchaseBillItem = {
   rate: number | string;
   gst_percent: number | string;
   amount: number | string;
+  stock_item_id?: number | null;
 };
 
 export type VendorPayment = {
@@ -248,6 +252,7 @@ export type PurchaseBill = {
   subtotal: number | string;
   cgst: number | string;
   sgst: number | string;
+  igst: number | string;
   grand_total: number | string;
   paid_amount: number | string;
   pending_balance: number | string;
@@ -301,6 +306,86 @@ export type JournalEntry = {
   source_id: number | null;
   created_at: string;
   lines: JournalLine[];
+};
+
+export type DepreciationEntry = {
+  id: number;
+  fixed_asset_id: number;
+  period_start: string;
+  period_end: string;
+  amount: number | string;
+  book_value_after: number | string;
+  created_at: string;
+};
+
+export type FixedAsset = {
+  id: number;
+  code: string;
+  name: string;
+  category: string;
+  purchase_date: string;
+  purchase_cost: number | string;
+  salvage_value: number | string;
+  useful_life_years: number | string;
+  depreciation_method: string;
+  depreciation_rate: number | string | null;
+  vendor_id: number | null;
+  location: string;
+  notes: string;
+  accumulated_depreciation: number | string;
+  last_depreciation_date: string | null;
+  status: string;
+  disposal_date: string | null;
+  disposal_value: number | string | null;
+  created_at: string;
+  depreciation_entries: DepreciationEntry[];
+  vendor?: VendorSummary | null;
+};
+
+export type FinancialYear = {
+  id: number;
+  label: string;
+  start_date: string;
+  end_date: string;
+  status: string;
+  closed_at: string | null;
+  total_income: number | string | null;
+  total_expense: number | string | null;
+  net_profit: number | string | null;
+  total_assets: number | string | null;
+  total_liabilities: number | string | null;
+  total_equity: number | string | null;
+  created_at: string;
+};
+
+export type StockMovement = {
+  id: number;
+  stock_item_id: number;
+  movement_date: string;
+  movement_type: string;
+  reason: string;
+  quantity: number | string;
+  balance_after: number | string;
+  reference: string;
+  source_type: string;
+  source_id: number | null;
+  notes: string;
+  created_at: string;
+};
+
+export type StockItem = {
+  id: number;
+  code: string;
+  name: string;
+  category: string;
+  unit: string;
+  hsn_code: string;
+  reorder_level: number | string;
+  quantity_on_hand: number | string;
+  notes: string;
+  status: string;
+  created_at: string;
+  movements: StockMovement[];
 };
 
 export type TrialBalanceRow = {
@@ -365,6 +450,7 @@ export type BusinessSettings = {
   email: string;
   address: string;
   gst_number: string;
+  state: string;
   logo_text: string;
   logo_path: string;
   bank_name: string;

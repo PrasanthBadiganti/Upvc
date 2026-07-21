@@ -200,16 +200,19 @@ def build_invoice_pdf(invoice: Invoice, settings: BusinessSettings | None = None
     rows = [["#", "Description", "HSN", "Category", "Qty", "Rate", "GST", "Amount"]]
     for i, item in enumerate(invoice.items, 1):
         rows.append([str(i), Paragraph(_text(item.description), styles["BodySmall"]), item.hsn_code or "-", item.category, f"{item.quantity}", _money(item.rate), f"{item.gst_percent}%", _money(item.amount)])
-    rows.extend([
-        ["", "", "", "", "", "", "Subtotal", _money(invoice.subtotal)],
+    gst_rows = [["", "", "", "", "", "", "IGST", _money(invoice.igst)]] if Decimal(invoice.igst or 0) > 0 else [
         ["", "", "", "", "", "", "CGST", _money(invoice.cgst)],
         ["", "", "", "", "", "", "SGST", _money(invoice.sgst)],
+    ]
+    rows.extend([
+        ["", "", "", "", "", "", "Subtotal", _money(invoice.subtotal)],
+        *gst_rows,
         ["", "", "", "", "", "", "Grand Total", _money(invoice.grand_total)],
         ["", "", "", "", "", "", "Paid", _money(invoice.paid_amount)],
         ["", "", "", "", "", "", "Balance", _money(invoice.pending_balance)],
     ])
     story.extend([
-        _item_table(rows, [8 * mm, 50 * mm, 16 * mm, 20 * mm, 14 * mm, 24 * mm, 20 * mm, 34 * mm], len(rows) - 6),
+        _item_table(rows, [8 * mm, 50 * mm, 16 * mm, 20 * mm, 14 * mm, 24 * mm, 20 * mm, 34 * mm], len(rows) - 4 - len(gst_rows)),
         Spacer(1, 10),
         _footer_blocks(settings, _business(settings).invoice_terms, styles),
     ])
@@ -242,16 +245,19 @@ def build_purchase_bill_pdf(bill: PurchaseBill, settings: BusinessSettings | Non
     rows = [["#", "Description", "HSN", "Category", "Qty", "Rate", "GST", "Amount"]]
     for i, item in enumerate(bill.items, 1):
         rows.append([str(i), Paragraph(_text(item.description), styles["BodySmall"]), item.hsn_code or "-", item.category, f"{item.quantity}", _money(item.rate), f"{item.gst_percent}%", _money(item.amount)])
-    rows.extend([
-        ["", "", "", "", "", "", "Subtotal", _money(bill.subtotal)],
+    gst_rows = [["", "", "", "", "", "", "IGST", _money(bill.igst)]] if Decimal(bill.igst or 0) > 0 else [
         ["", "", "", "", "", "", "CGST", _money(bill.cgst)],
         ["", "", "", "", "", "", "SGST", _money(bill.sgst)],
+    ]
+    rows.extend([
+        ["", "", "", "", "", "", "Subtotal", _money(bill.subtotal)],
+        *gst_rows,
         ["", "", "", "", "", "", "Grand Total", _money(bill.grand_total)],
         ["", "", "", "", "", "", "Paid", _money(bill.paid_amount)],
         ["", "", "", "", "", "", "Balance", _money(bill.pending_balance)],
     ])
     story.extend([
-        _item_table(rows, [8 * mm, 50 * mm, 16 * mm, 20 * mm, 14 * mm, 24 * mm, 20 * mm, 34 * mm], len(rows) - 6),
+        _item_table(rows, [8 * mm, 50 * mm, 16 * mm, 20 * mm, 14 * mm, 24 * mm, 20 * mm, 34 * mm], len(rows) - 4 - len(gst_rows)),
         Spacer(1, 10),
         _footer_blocks(settings, "Purchase bill recorded for internal accounts payable tracking.", styles),
     ])

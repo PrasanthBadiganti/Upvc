@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Building2, Edit3, Search, UserPlus2 } from 'lucide-react';
+import { Building2, Edit3, Search, Upload, UserPlus2 } from 'lucide-react';
 import api from '../api';
 import { Button, Card, Field, Input, Loading, Modal, PageHeader, Select } from '../components/UI';
+import ImportModal from '../components/ImportModal';
 import Status from '../components/Status';
 import { Vendor } from '../types';
-import { currency } from '../utils';
+import { currency, INDIAN_STATES } from '../utils';
 
 type VendorForm = Omit<Vendor, 'id' | 'code' | 'created_at'>;
 
@@ -14,6 +15,7 @@ const blank: VendorForm = {
   email: '',
   address: '',
   gst_number: '',
+  state: '',
   status: 'Active',
   pending_payment: 0,
   notes: '',
@@ -25,6 +27,7 @@ export default function Vendors() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState<Vendor | null>(null);
   const [form, setForm] = useState<VendorForm>(blank);
 
@@ -51,6 +54,7 @@ export default function Vendors() {
       email: vendor.email,
       address: vendor.address,
       gst_number: vendor.gst_number || '',
+      state: vendor.state || '',
       status: vendor.status,
       pending_payment: Number(vendor.pending_payment),
       notes: vendor.notes || '',
@@ -71,17 +75,19 @@ export default function Vendors() {
     <div className="list-toolbar">
       <div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vendor by name, phone, email..." /></div>
       <Select value={status} onChange={e => setStatus(e.target.value)} style={{ width: 130 }}><option value="">All Status</option><option>Active</option><option>Inactive</option></Select>
+      <Button tone="secondary" onClick={() => setImportOpen(true)}><Upload size={16} /> Import CSV</Button>
       <Button onClick={showAdd}><UserPlus2 size={16} /> Add Vendor</Button>
     </div>
-    <Card className="list-card">{loading ? <Loading /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Vendor</th><th>Contact</th><th>GSTIN</th><th>Pending Payable</th><th>Status</th><th>Action</th></tr></thead><tbody>{vendors.map(vendor => <tr key={vendor.id}>
+    <Card className="list-card">{loading ? <Loading /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Vendor</th><th>Contact</th><th>GSTIN</th><th>State</th><th>Pending Payable</th><th>Status</th><th>Action</th></tr></thead><tbody>{vendors.map(vendor => <tr key={vendor.id}>
       <td><span className="cell-title">{vendor.name}</span><span className="cell-sub">{vendor.code}</span></td>
       <td><span>{vendor.phone}</span><span className="cell-sub">{vendor.email}</span></td>
       <td>{vendor.gst_number || '--'}</td>
+      <td>{vendor.state || '--'}</td>
       <td className={`amount ${Number(vendor.pending_payment) > 0 ? 'danger' : 'success'}`}>{currency(vendor.pending_payment, 2)}</td>
       <td><Status value={vendor.status} /></td>
       <td><button className="mini-button" onClick={() => showEdit(vendor)}><Edit3 size={14} /></button></td>
     </tr>)}
-    {!vendors.length && <tr><td colSpan={6} className="muted">No vendors found</td></tr>}
+    {!vendors.length && <tr><td colSpan={7} className="muted">No vendors found</td></tr>}
     </tbody></table></div>}</Card>
 
     <Modal open={open} onClose={() => setOpen(false)} title={editing ? 'Edit Vendor' : 'Add Vendor'} width={720}>
@@ -91,6 +97,7 @@ export default function Vendors() {
           <Field label="Phone"><Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></Field>
           <Field label="Email"><Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></Field>
           <Field label="GST Number"><Input value={form.gst_number} onChange={e => setForm({ ...form, gst_number: e.target.value })} /></Field>
+          <Field label="State"><Select value={form.state} onChange={e => setForm({ ...form, state: e.target.value })}><option value="">Select state</option>{INDIAN_STATES.map(s => <option key={s}>{s}</option>)}</Select></Field>
           <Field label="Status"><Select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}><option>Active</option><option>Inactive</option></Select></Field>
           <Field label="Address"><textarea className="input" value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} /></Field>
           <Field label="Notes"><textarea className="input" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></Field>
@@ -98,5 +105,18 @@ export default function Vendors() {
         <div className="form-actions"><Button type="button" tone="secondary" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit"><Building2 size={14} /> {editing ? 'Update' : 'Save'} Vendor</Button></div>
       </form>
     </Modal>
+
+    <ImportModal
+      open={importOpen}
+      onClose={() => setImportOpen(false)}
+      title="Import Vendors"
+      previewUrl="/vendors/import/preview"
+      commitUrl="/vendors/import/commit"
+      columns={[{ key: 'name', label: 'Name' }, { key: 'phone', label: 'Phone' }, { key: 'email', label: 'Email' }, { key: 'gst_number', label: 'GSTIN' }, { key: 'address', label: 'Address' }, { key: 'opening_balance', label: 'Opening Balance' }]}
+      extraHelp="opening_balance"
+      acceptTallyXml
+      showAsOfDate
+      onImported={() => load()}
+    />
   </>;
 }

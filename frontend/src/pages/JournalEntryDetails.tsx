@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { CalendarDays, FileText } from 'lucide-react';
+import { CalendarDays, FileText, RotateCcw } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
-import { Card, Loading, PageHeader } from '../components/UI';
+import { Button, Card, Loading, PageHeader } from '../components/UI';
 import { JournalEntry } from '../types';
 import { currency, shortDate } from '../utils';
 
@@ -10,15 +10,30 @@ export default function JournalEntryDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [entry, setEntry] = useState<JournalEntry | null>(null);
+  const [reversing, setReversing] = useState(false);
 
-  useEffect(() => { api.get(`/journal/${id}`).then(r => setEntry(r.data)); }, [id]);
+  const load = () => api.get(`/journal/${id}`).then(r => setEntry(r.data));
+  useEffect(() => { load(); }, [id]);
   if (!entry) return <Loading />;
 
   const totalDebit = entry.lines.reduce((s, l) => s + Number(l.debit), 0);
   const totalCredit = entry.lines.reduce((s, l) => s + Number(l.credit), 0);
 
+  const reverse = async () => {
+    if (!window.confirm('Reverse this journal entry? This posts an offsetting entry and cannot be undone.')) return;
+    setReversing(true);
+    try {
+      const { data } = await api.post(`/journal/${entry.id}/reverse`);
+      navigate(`/journal/${data.id}`);
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Could not reverse this journal entry');
+    } finally {
+      setReversing(false);
+    }
+  };
+
   return <>
-    <PageHeader title="Journal Entry Details" />
+    <PageHeader title="Journal Entry Details" action={entry.source_type === 'Manual' ? <Button tone="secondary" onClick={reverse} disabled={reversing}><RotateCcw size={15} /> Reverse Entry</Button> : undefined} />
     <div className="metric-grid invoice-summary-cards">
       <Card className="invoice-summary-card"><div className="metric-icon blue"><FileText size={18} /></div><div><small>Journal No.</small><strong>{entry.number}</strong></div></Card>
       <Card className="invoice-summary-card"><div className="metric-icon blue"><CalendarDays size={18} /></div><div><small>Date</small><strong>{shortDate(entry.entry_date)}</strong></div></Card>

@@ -3,6 +3,7 @@ import { Upload, Trash2 } from 'lucide-react';
 import api from '../api';
 import { Button, Card, Field, Input, Loading, PageHeader, Select } from '../components/UI';
 import { BusinessSettings, PricingRule } from '../types';
+import { INDIAN_STATES } from '../utils';
 
 export default function SettingsPage() {
   const [rules, setRules] = useState<PricingRule | null>(null);
@@ -69,6 +70,7 @@ export default function SettingsPage() {
             <Field label="Business Name"><Input value={business.company_name} onChange={e => setBusiness({ ...business, company_name: e.target.value })} /></Field>
             <Field label="Tagline"><Input value={business.tagline} onChange={e => setBusiness({ ...business, tagline: e.target.value })} /></Field>
             <Field label="GST Number"><Input value={business.gst_number} onChange={e => setBusiness({ ...business, gst_number: e.target.value })} /></Field>
+            <Field label="State"><Select value={business.state} onChange={e => setBusiness({ ...business, state: e.target.value })}><option value="">Select state</option>{INDIAN_STATES.map(s => <option key={s}>{s}</option>)}</Select></Field>
             <Field label="Logo Text"><Input maxLength={4} value={business.logo_text} onChange={e => setBusiness({ ...business, logo_text: e.target.value })} /></Field>
             <Field label="Phone"><Input value={business.phone} onChange={e => setBusiness({ ...business, phone: e.target.value })} /></Field>
             <Field label="Email"><Input value={business.email} onChange={e => setBusiness({ ...business, email: e.target.value })} /></Field>

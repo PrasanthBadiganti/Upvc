@@ -5,17 +5,17 @@ import { Button, Card, Field, Input, Loading, PageHeader } from '../components/U
 import { currency } from '../utils';
 
 type Gstr1 = {
-  b2b: Array<{ gstin: string; customer_name: string; invoice_number: string; invoice_date: string; invoice_value: number; taxable_value: number; rate: number; cgst: number; sgst: number }>;
-  b2c: Array<{ rate: number; taxable_value: number; cgst: number; sgst: number }>;
+  b2b: Array<{ gstin: string; customer_name: string; invoice_number: string; invoice_date: string; invoice_value: number; taxable_value: number; rate: number; cgst: number; sgst: number; igst: number }>;
+  b2c: Array<{ rate: number; taxable_value: number; cgst: number; sgst: number; igst: number }>;
   cdnr: Array<{ type: string; note_number: string; note_date: string; against_invoice: string; gstin: string; customer_name: string; taxable_value: number; tax_amount: number }>;
   hsn_summary: Array<{ hsn_code: string; description: string; unit: string; quantity: number; taxable_value: number; tax_amount: number; total_value: number }>;
   totals: { b2b_taxable_value: number; b2c_taxable_value: number };
 };
 
 type Gstr3b = {
-  outward_taxable_supplies: { taxable_value: number; cgst: number; sgst: number; total_tax: number };
-  eligible_itc: { cgst: number; sgst: number; total_itc: number };
-  net_tax_payable: { cgst: number; sgst: number; total: number };
+  outward_taxable_supplies: { taxable_value: number; cgst: number; sgst: number; igst: number; total_tax: number };
+  eligible_itc: { cgst: number; sgst: number; igst: number; total_itc: number };
+  net_tax_payable: { cgst: number; sgst: number; igst: number; total: number };
 };
 
 const firstOfMonth = () => { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); };
@@ -57,22 +57,22 @@ export default function GstReports() {
 
     {loading ? <Loading /> : gstr1 && gstr3b && <>
       <div className="report-grid">
-        <Card className="settings-card"><h3>Outward Taxable Supplies (3.1)</h3><div className="summary-line"><span>Taxable Value</span><b>{currency(gstr3b.outward_taxable_supplies.taxable_value, 2)}</b></div><div className="summary-line"><span>CGST</span><b>{currency(gstr3b.outward_taxable_supplies.cgst, 2)}</b></div><div className="summary-line"><span>SGST</span><b>{currency(gstr3b.outward_taxable_supplies.sgst, 2)}</b></div></Card>
-        <Card className="settings-card"><h3>Eligible ITC</h3><div className="summary-line"><span>Input CGST</span><b>{currency(gstr3b.eligible_itc.cgst, 2)}</b></div><div className="summary-line"><span>Input SGST</span><b>{currency(gstr3b.eligible_itc.sgst, 2)}</b></div><div className="summary-line"><span>Total ITC</span><b>{currency(gstr3b.eligible_itc.total_itc, 2)}</b></div></Card>
-        <Card className="settings-card"><h3>Net Tax Payable</h3><div className="summary-line"><span>CGST Payable</span><b>{currency(gstr3b.net_tax_payable.cgst, 2)}</b></div><div className="summary-line"><span>SGST Payable</span><b>{currency(gstr3b.net_tax_payable.sgst, 2)}</b></div><div className="summary-line total"><span>Total Payable</span><b>{currency(gstr3b.net_tax_payable.total, 2)}</b></div></Card>
+        <Card className="settings-card"><h3>Outward Taxable Supplies (3.1)</h3><div className="summary-line"><span>Taxable Value</span><b>{currency(gstr3b.outward_taxable_supplies.taxable_value, 2)}</b></div><div className="summary-line"><span>CGST</span><b>{currency(gstr3b.outward_taxable_supplies.cgst, 2)}</b></div><div className="summary-line"><span>SGST</span><b>{currency(gstr3b.outward_taxable_supplies.sgst, 2)}</b></div><div className="summary-line"><span>IGST</span><b>{currency(gstr3b.outward_taxable_supplies.igst, 2)}</b></div></Card>
+        <Card className="settings-card"><h3>Eligible ITC</h3><div className="summary-line"><span>Input CGST</span><b>{currency(gstr3b.eligible_itc.cgst, 2)}</b></div><div className="summary-line"><span>Input SGST</span><b>{currency(gstr3b.eligible_itc.sgst, 2)}</b></div><div className="summary-line"><span>Input IGST</span><b>{currency(gstr3b.eligible_itc.igst, 2)}</b></div><div className="summary-line"><span>Total ITC</span><b>{currency(gstr3b.eligible_itc.total_itc, 2)}</b></div></Card>
+        <Card className="settings-card"><h3>Net Tax Payable</h3><div className="summary-line"><span>CGST Payable</span><b>{currency(gstr3b.net_tax_payable.cgst, 2)}</b></div><div className="summary-line"><span>SGST Payable</span><b>{currency(gstr3b.net_tax_payable.sgst, 2)}</b></div><div className="summary-line"><span>IGST Payable</span><b>{currency(gstr3b.net_tax_payable.igst, 2)}</b></div><div className="summary-line total"><span>Total Payable</span><b>{currency(gstr3b.net_tax_payable.total, 2)}</b></div></Card>
       </div>
 
       <Card className="list-card">
         <div className="card-head"><h3>B2B Invoices (GSTR-1)</h3></div>
-        <div className="table-wrap"><table className="data-table"><thead><tr><th>Invoice No.</th><th>Date</th><th>Customer</th><th>GSTIN</th><th>Taxable Value</th><th>Rate</th><th>CGST</th><th>SGST</th><th>Invoice Value</th></tr></thead><tbody>{gstr1.b2b.map(row => <tr key={row.invoice_number}><td className="cell-title">{row.invoice_number}</td><td>{row.invoice_date}</td><td>{row.customer_name}</td><td>{row.gstin}</td><td className="amount">{currency(row.taxable_value, 2)}</td><td>{row.rate}%</td><td className="amount">{currency(row.cgst, 2)}</td><td className="amount">{currency(row.sgst, 2)}</td><td className="amount"><b>{currency(row.invoice_value, 2)}</b></td></tr>)}
-        {!gstr1.b2b.length && <tr><td colSpan={9} className="muted">No B2B invoices in this period</td></tr>}
+        <div className="table-wrap"><table className="data-table"><thead><tr><th>Invoice No.</th><th>Date</th><th>Customer</th><th>GSTIN</th><th>Taxable Value</th><th>Rate</th><th>CGST</th><th>SGST</th><th>IGST</th><th>Invoice Value</th></tr></thead><tbody>{gstr1.b2b.map(row => <tr key={row.invoice_number}><td className="cell-title">{row.invoice_number}</td><td>{row.invoice_date}</td><td>{row.customer_name}</td><td>{row.gstin}</td><td className="amount">{currency(row.taxable_value, 2)}</td><td>{row.rate}%</td><td className="amount">{currency(row.cgst, 2)}</td><td className="amount">{currency(row.sgst, 2)}</td><td className="amount">{currency(row.igst, 2)}</td><td className="amount"><b>{currency(row.invoice_value, 2)}</b></td></tr>)}
+        {!gstr1.b2b.length && <tr><td colSpan={10} className="muted">No B2B invoices in this period</td></tr>}
         </tbody></table></div>
       </Card>
 
       <Card className="list-card">
         <div className="card-head"><h3>B2C Summary (by rate)</h3></div>
-        <div className="table-wrap"><table className="data-table"><thead><tr><th>Rate</th><th>Taxable Value</th><th>CGST</th><th>SGST</th></tr></thead><tbody>{gstr1.b2c.map(row => <tr key={row.rate}><td>{row.rate}%</td><td className="amount">{currency(row.taxable_value, 2)}</td><td className="amount">{currency(row.cgst, 2)}</td><td className="amount">{currency(row.sgst, 2)}</td></tr>)}
-        {!gstr1.b2c.length && <tr><td colSpan={4} className="muted">No B2C invoices in this period</td></tr>}
+        <div className="table-wrap"><table className="data-table"><thead><tr><th>Rate</th><th>Taxable Value</th><th>CGST</th><th>SGST</th><th>IGST</th></tr></thead><tbody>{gstr1.b2c.map(row => <tr key={row.rate}><td>{row.rate}%</td><td className="amount">{currency(row.taxable_value, 2)}</td><td className="amount">{currency(row.cgst, 2)}</td><td className="amount">{currency(row.sgst, 2)}</td><td className="amount">{currency(row.igst, 2)}</td></tr>)}
+        {!gstr1.b2c.length && <tr><td colSpan={5} className="muted">No B2C invoices in this period</td></tr>}
         </tbody></table></div>
       </Card>
 

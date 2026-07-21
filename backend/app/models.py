@@ -19,6 +19,7 @@ class Customer(Base):
     email: Mapped[str] = mapped_column(String(160), default="")
     address: Mapped[str] = mapped_column(Text, default="")
     gst_number: Mapped[str] = mapped_column(String(40), default="")
+    state: Mapped[str] = mapped_column(String(60), default="")
     project_site: Mapped[str] = mapped_column(String(200), default="")
     status: Mapped[str] = mapped_column(String(40), default="New", index=True)
     last_interaction: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -91,6 +92,7 @@ class BusinessSettings(Base):
     email: Mapped[str] = mapped_column(String(160), default="hello@crystalframes.example")
     address: Mapped[str] = mapped_column(Text, default="Vizianagaram, Andhra Pradesh")
     gst_number: Mapped[str] = mapped_column(String(40), default="37ASLPH7160H1ZI")
+    state: Mapped[str] = mapped_column(String(60), default="Andhra Pradesh")
     logo_text: Mapped[str] = mapped_column(String(12), default="CF")
     logo_path: Mapped[str] = mapped_column(String(260), default="")
     bank_name: Mapped[str] = mapped_column(String(160), default="Bank of Baroda")
@@ -173,6 +175,7 @@ class Invoice(Base):
     subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     cgst: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     sgst: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    igst: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     grand_total: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     paid_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     pending_balance: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
@@ -319,6 +322,7 @@ class Vendor(Base):
     email: Mapped[str] = mapped_column(String(160), default="")
     address: Mapped[str] = mapped_column(Text, default="")
     gst_number: Mapped[str] = mapped_column(String(40), default="")
+    state: Mapped[str] = mapped_column(String(60), default="")
     status: Mapped[str] = mapped_column(String(40), default="Active", index=True)
     pending_payment: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     notes: Mapped[str] = mapped_column(Text, default="")
@@ -341,6 +345,7 @@ class PurchaseBill(Base):
     subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     cgst: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     sgst: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    igst: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     grand_total: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     paid_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     pending_balance: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
@@ -365,6 +370,7 @@ class PurchaseBillItem(Base):
     rate: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     gst_percent: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=18)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    stock_item_id: Mapped[int | None] = mapped_column(ForeignKey("stock_items.id"), nullable=True, index=True)
 
     purchase_bill: Mapped[PurchaseBill] = relationship(back_populates="items")
 
@@ -442,3 +448,99 @@ class JournalLine(Base):
 
     entry: Mapped[JournalEntry] = relationship(back_populates="lines")
     account: Mapped[ChartOfAccount] = relationship()
+
+
+class FixedAsset(Base):
+    __tablename__ = "fixed_assets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(30), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    category: Mapped[str] = mapped_column(String(60), default="Other")
+    purchase_date: Mapped[date] = mapped_column(Date, default=date.today)
+    purchase_cost: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    salvage_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    useful_life_years: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=1)
+    depreciation_method: Mapped[str] = mapped_column(String(30), default="Straight Line")
+    depreciation_rate: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    vendor_id: Mapped[int | None] = mapped_column(ForeignKey("vendors.id"), nullable=True, index=True)
+    location: Mapped[str] = mapped_column(String(160), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    accumulated_depreciation: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    last_depreciation_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="Active", index=True)
+    disposal_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    disposal_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    vendor: Mapped[Vendor | None] = relationship()
+    depreciation_entries: Mapped[list["DepreciationEntry"]] = relationship(back_populates="fixed_asset", cascade="all, delete-orphan", order_by="DepreciationEntry.period_end")
+
+
+class DepreciationEntry(Base):
+    __tablename__ = "depreciation_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fixed_asset_id: Mapped[int] = mapped_column(ForeignKey("fixed_assets.id"), index=True)
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    book_value_after: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    fixed_asset: Mapped[FixedAsset] = relationship(back_populates="depreciation_entries")
+
+
+class FinancialYear(Base):
+    __tablename__ = "financial_years"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    label: Mapped[str] = mapped_column(String(30), unique=True, index=True)
+    start_date: Mapped[date] = mapped_column(Date, index=True)
+    end_date: Mapped[date] = mapped_column(Date, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="Open", index=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    total_income: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    total_expense: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    net_profit: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    total_assets: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    total_liabilities: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    total_equity: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class StockItem(Base):
+    __tablename__ = "stock_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(30), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(160), index=True)
+    category: Mapped[str] = mapped_column(String(60), default="Other")
+    unit: Mapped[str] = mapped_column(String(20), default="Nos")
+    hsn_code: Mapped[str] = mapped_column(String(20), default="")
+    reorder_level: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    quantity_on_hand: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(30), default="Active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    movements: Mapped[list["StockMovement"]] = relationship(back_populates="stock_item", cascade="all, delete-orphan", order_by="StockMovement.id")
+
+
+class StockMovement(Base):
+    __tablename__ = "stock_movements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    stock_item_id: Mapped[int] = mapped_column(ForeignKey("stock_items.id"), index=True)
+    movement_date: Mapped[date] = mapped_column(Date, default=date.today, index=True)
+    movement_type: Mapped[str] = mapped_column(String(20), index=True)
+    reason: Mapped[str] = mapped_column(String(60), default="Manual")
+    quantity: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    balance_after: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    reference: Mapped[str] = mapped_column(String(160), default="")
+    source_type: Mapped[str] = mapped_column(String(40), default="Manual")
+    source_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    stock_item: Mapped[StockItem] = relationship(back_populates="movements")

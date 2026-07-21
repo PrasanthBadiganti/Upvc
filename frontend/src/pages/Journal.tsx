@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Eye, RefreshCw, Search } from 'lucide-react';
+import { Eye, Plus, RefreshCw, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { Button, Card, Loading, PageHeader } from '../components/UI';
@@ -18,7 +18,7 @@ export default function Journal() {
   const filtered = entries.filter(e => `${e.number} ${e.narration} ${e.source_type}`.toLowerCase().includes(search.toLowerCase()));
 
   return <>
-    <PageHeader title="Journal" subtitle="Every posting auto-generated from your sales, purchase and expense activity" />
+    <PageHeader title="Journal" subtitle="Every posting auto-generated from your sales, purchase and expense activity" action={<Button onClick={() => navigate('/journal/new')}><Plus size={15} /> New Entry</Button>} />
     <div className="list-toolbar"><div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search journal number, narration or source..." /></div><Button tone="secondary" onClick={load}><RefreshCw size={15} /> Refresh</Button></div>
     <Card className="list-card">{loading ? <Loading /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Journal No.</th><th>Date</th><th>Narration</th><th>Source</th><th>Total</th><th>Action</th></tr></thead><tbody>{filtered.map(entry => <tr key={entry.id}>
       <td className="cell-title">{entry.number}</td>

@@ -16,13 +16,20 @@ TALLY_PARENT_BY_CODE = {
     "1100": "Sundry Debtors",
     "1200": "Duties & Taxes",
     "1210": "Duties & Taxes",
+    "1220": "Duties & Taxes",
+    "1500": "Fixed Assets",
+    "1590": "Fixed Assets",
     "2000": "Sundry Creditors",
     "2100": "Duties & Taxes",
     "2110": "Duties & Taxes",
+    "2120": "Duties & Taxes",
     "3000": "Capital Account",
+    "3800": "Capital Account",
     "4000": "Sales Accounts",
     "4100": "Sales Accounts",
+    "4200": "Indirect Income",
     "5000": "Purchase Accounts",
+    "5200": "Indirect Expenses",
 }
 
 VOUCHER_TYPE_BY_SOURCE = {

@@ -17,6 +17,7 @@ class CustomerBase(BaseModel):
     email: str = ""
     address: str = ""
     gst_number: str = ""
+    state: str = ""
     project_site: str = ""
     status: str = "New"
     last_interaction: datetime | None = None
@@ -93,6 +94,7 @@ class BusinessSettingsPayload(BaseModel):
     email: str = "hello@crystalframes.example"
     address: str = "Vizianagaram, Andhra Pradesh"
     gst_number: str = "37ASLPH7160H1ZI"
+    state: str = "Andhra Pradesh"
     logo_text: str = "CF"
     logo_path: str = ""
     bank_name: str = "Bank of Baroda"
@@ -216,6 +218,7 @@ class InvoiceRead(ORMModel):
     subtotal: Decimal
     cgst: Decimal
     sgst: Decimal
+    igst: Decimal
     grand_total: Decimal
     paid_amount: Decimal
     pending_balance: Decimal
@@ -316,6 +319,7 @@ class VendorBase(BaseModel):
     email: str = ""
     address: str = ""
     gst_number: str = ""
+    state: str = ""
     status: str = "Active"
     pending_payment: Decimal = Decimal("0")
     notes: str = ""
@@ -348,6 +352,7 @@ class PurchaseBillItemPayload(BaseModel):
     rate: Decimal = Decimal("0")
     gst_percent: Decimal = Decimal("18")
     amount: Decimal = Decimal("0")
+    stock_item_id: int | None = None
 
 
 class PurchaseBillItemRead(PurchaseBillItemPayload, ORMModel):
@@ -388,6 +393,7 @@ class PurchaseBillRead(ORMModel):
     subtotal: Decimal
     cgst: Decimal
     sgst: Decimal
+    igst: Decimal
     grand_total: Decimal
     paid_amount: Decimal
     pending_balance: Decimal
@@ -446,6 +452,148 @@ class JournalEntryRead(ORMModel):
     lines: list[JournalLineRead]
 
 
+class FixedAssetCreate(BaseModel):
+    name: str
+    category: str = "Other"
+    purchase_date: date = Field(default_factory=date.today)
+    purchase_cost: Decimal
+    salvage_value: Decimal = Decimal("0")
+    useful_life_years: Decimal
+    depreciation_method: str = "Straight Line"
+    depreciation_rate: Decimal | None = None
+    vendor_id: int | None = None
+    payment_mode: str = "Bank"
+    location: str = ""
+    notes: str = ""
+
+
+class DepreciationEntryRead(ORMModel):
+    id: int
+    fixed_asset_id: int
+    period_start: date
+    period_end: date
+    amount: Decimal
+    book_value_after: Decimal
+    created_at: datetime
+
+
+class FixedAssetRead(ORMModel):
+    id: int
+    code: str
+    name: str
+    category: str
+    purchase_date: date
+    purchase_cost: Decimal
+    salvage_value: Decimal
+    useful_life_years: Decimal
+    depreciation_method: str
+    depreciation_rate: Decimal | None
+    vendor_id: int | None
+    location: str
+    notes: str
+    accumulated_depreciation: Decimal
+    last_depreciation_date: date | None
+    status: str
+    disposal_date: date | None
+    disposal_value: Decimal | None
+    created_at: datetime
+    depreciation_entries: list[DepreciationEntryRead] = []
+    vendor: VendorSummaryRead | None = None
+
+
+class DepreciationRunRequest(BaseModel):
+    as_of_date: date = Field(default_factory=date.today)
+
+
+class FixedAssetDisposeRequest(BaseModel):
+    disposal_date: date = Field(default_factory=date.today)
+    disposal_value: Decimal = Decimal("0")
+
+
+class StockItemCreate(BaseModel):
+    name: str
+    category: str = "Other"
+    unit: str = "Nos"
+    hsn_code: str = ""
+    reorder_level: Decimal = Decimal("0")
+    opening_quantity: Decimal = Decimal("0")
+    notes: str = ""
+    status: str = "Active"
+
+
+class StockMovementRead(ORMModel):
+    id: int
+    stock_item_id: int
+    movement_date: date
+    movement_type: str
+    reason: str
+    quantity: Decimal
+    balance_after: Decimal
+    reference: str
+    source_type: str
+    source_id: int | None
+    notes: str
+    created_at: datetime
+
+
+class StockItemRead(ORMModel):
+    id: int
+    code: str
+    name: str
+    category: str
+    unit: str
+    hsn_code: str
+    reorder_level: Decimal
+    quantity_on_hand: Decimal
+    notes: str
+    status: str
+    created_at: datetime
+    movements: list[StockMovementRead] = []
+
+
+class StockMovementCreate(BaseModel):
+    movement_date: date = Field(default_factory=date.today)
+    movement_type: str
+    quantity: Decimal
+    reason: str = "Manual"
+    reference: str = ""
+    notes: str = ""
+
+
+class FinancialYearCreate(BaseModel):
+    start_date: date
+    end_date: date
+    label: str = ""
+
+
+class FinancialYearRead(ORMModel):
+    id: int
+    label: str
+    start_date: date
+    end_date: date
+    status: str
+    closed_at: datetime | None
+    total_income: Decimal | None
+    total_expense: Decimal | None
+    net_profit: Decimal | None
+    total_assets: Decimal | None
+    total_liabilities: Decimal | None
+    total_equity: Decimal | None
+    created_at: datetime
+
+
+class ManualJournalLine(BaseModel):
+    account_id: int
+    debit: Decimal = Decimal("0")
+    credit: Decimal = Decimal("0")
+
+
+class ManualJournalEntryCreate(BaseModel):
+    entry_date: date = Field(default_factory=date.today)
+    narration: str
+    lines: list[ManualJournalLine]
+
+
 class TrialBalanceRow(BaseModel):
     account_id: int
     code: str
@@ -470,6 +618,52 @@ class LedgerLineRead(ORMModel):
     debit: Decimal
     credit: Decimal
     entry: JournalEntrySummaryRead
+
+
+class CustomerImportRow(BaseModel):
+    name: str
+    phone: str = ""
+    email: str = ""
+    address: str = ""
+    gst_number: str = ""
+    project_site: str = ""
+    assigned_to: str = ""
+    notes: str = ""
+    opening_balance: str = ""
+
+
+class CustomerImportCommit(BaseModel):
+    rows: list[CustomerImportRow]
+    as_of: date | None = None
+
+
+class VendorImportRow(BaseModel):
+    name: str
+    phone: str = ""
+    email: str = ""
+    address: str = ""
+    gst_number: str = ""
+    notes: str = ""
+    opening_balance: str = ""
+
+
+class VendorImportCommit(BaseModel):
+    rows: list[VendorImportRow]
+    as_of: date | None = None
+
+
+class OpeningBalanceRow(BaseModel):
+    name: str
+    debit: Decimal = Decimal("0")
+    credit: Decimal = Decimal("0")
+    match_type: str
+    match_id: str | int | None = None
+    match_name: str | None = None
+
+
+class OpeningBalanceCommit(BaseModel):
+    rows: list[OpeningBalanceRow]
+    as_of: date
 
 
 class FollowupCreate(BaseModel):

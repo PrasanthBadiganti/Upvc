@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from . import models
-from .schemas import CreditNoteCreate, DebitNoteCreate, ExpenseCreate, PurchaseBillCreate, QuotationCreate
+from .schemas import CreditNoteCreate, DebitNoteCreate, ExpenseCreate, FinancialYearCreate, FixedAssetCreate, PurchaseBillCreate, QuotationCreate, StockItemCreate, StockMovementCreate
 
 TWOPLACES = Decimal("0.01")
 
@@ -226,6 +226,7 @@ def convert_quotation_to_invoice(db: Session, quotation_id: int) -> models.Invoi
 
     subtotal = money(quote.subtotal)
     total_gst = money(quote.gst)
+    interstate = is_interstate(_business_state(db), quote.customer.state)
     invoice = models.Invoice(
         number=next_document_number(db, models.Invoice, "INV"),
         quotation_id=quote.id,
@@ -234,8 +235,9 @@ def convert_quotation_to_invoice(db: Session, quotation_id: int) -> models.Invoi
         due_date=date.today() + timedelta(days=30),
         status="Unpaid",
         subtotal=subtotal,
-        cgst=money(total_gst / 2),
-        sgst=money(total_gst / 2),
+        cgst=Decimal("0") if interstate else money(total_gst / 2),
+        sgst=Decimal("0") if interstate else money(total_gst / 2),
+        igst=total_gst if interstate else Decimal("0"),
         grand_total=money(quote.grand_total),
         paid_amount=Decimal("0"),
         pending_balance=money(quote.grand_total),
@@ -260,18 +262,63 @@ def convert_quotation_to_invoice(db: Session, quotation_id: int) -> models.Invoi
     customer.pending_payment = money(Decimal(customer.pending_payment or 0) + invoice.pending_balance)
     db.add(invoice)
     db.flush()
-    revenue_amount = money(Decimal(invoice.grand_total) - Decimal(invoice.cgst) - Decimal(invoice.sgst))
+    revenue_amount = money(Decimal(invoice.grand_total) - Decimal(invoice.cgst) - Decimal(invoice.sgst) - Decimal(invoice.igst))
+    gst_lines = [(ACCOUNT_OUTPUT_IGST, Decimal("0"), invoice.igst)] if interstate else [
+        (ACCOUNT_OUTPUT_CGST, Decimal("0"), invoice.cgst),
+        (ACCOUNT_OUTPUT_SGST, Decimal("0"), invoice.sgst),
+    ]
     post_journal_entry(db, invoice.invoice_date, f"Invoice {invoice.number} to {customer.name}", "Invoice", invoice.id, [
         (ACCOUNT_RECEIVABLE, invoice.grand_total, Decimal("0")),
         (ACCOUNT_SALES, Decimal("0"), revenue_amount),
-        (ACCOUNT_OUTPUT_CGST, Decimal("0"), invoice.cgst),
-        (ACCOUNT_OUTPUT_SGST, Decimal("0"), invoice.sgst),
+        *gst_lines,
     ])
     db.commit()
     return get_invoice(db, invoice.id)
 
 
+def create_opening_balance_invoice(db: Session, customer_id: int, amount: Decimal, as_of: date) -> models.Invoice:
+    """Represents a migrated customer balance as a real Invoice so the existing
+    invoice-derived Customer.pending_payment resync picks it up naturally."""
+    customer = db.get(models.Customer, customer_id)
+    if not customer:
+        raise ValueError("Customer not found")
+    amount = money(amount)
+    invoice = models.Invoice(
+        number=next_document_number(db, models.Invoice, "OB"),
+        quotation_id=None,
+        customer_id=customer_id,
+        invoice_date=as_of,
+        due_date=as_of,
+        status="Unpaid",
+        subtotal=amount,
+        cgst=Decimal("0"),
+        sgst=Decimal("0"),
+        grand_total=amount,
+        paid_amount=Decimal("0"),
+        pending_balance=amount,
+    )
+    invoice.items.append(models.InvoiceItem(
+        description="Opening balance carried forward from migration",
+        category="Opening Balance",
+        unit="",
+        quantity=1,
+        rate=amount,
+        gst_percent=Decimal("0"),
+        amount=amount,
+        hsn_code="",
+    ))
+    db.add(invoice)
+    db.flush()
+    post_journal_entry(db, as_of, f"Opening balance for {customer.name}", "OpeningBalance", invoice.id, [
+        (ACCOUNT_RECEIVABLE, amount, Decimal("0")),
+        (ACCOUNT_OPENING_BALANCE_EQUITY, Decimal("0"), amount),
+    ])
+    return invoice
+
+
 def record_payment(db: Session, invoice_id: int, amount: Decimal, **kwargs) -> models.Invoice:
+    if kwargs.get("payment_date"):
+        _ensure_period_open(db, kwargs["payment_date"])
     invoice = get_invoice(db, invoice_id)
     if invoice.status == "Cancelled":
         raise ValueError("Cannot record payment against a cancelled invoice")
@@ -306,11 +353,14 @@ def cancel_invoice(db: Session, invoice_id: int, force: bool = False) -> models.
     customer = invoice.customer
     customer.pending_payment = money(max(Decimal("0"), Decimal(customer.pending_payment or 0) - Decimal(invoice.pending_balance or 0)))
     invoice.status = "Cancelled"
-    revenue_amount = money(Decimal(invoice.grand_total) - Decimal(invoice.cgst) - Decimal(invoice.sgst))
-    post_journal_entry(db, date.today(), f"Cancellation of invoice {invoice.number}", "InvoiceCancellation", invoice.id, [
-        (ACCOUNT_SALES, revenue_amount, Decimal("0")),
+    revenue_amount = money(Decimal(invoice.grand_total) - Decimal(invoice.cgst) - Decimal(invoice.sgst) - Decimal(invoice.igst))
+    gst_lines = [(ACCOUNT_OUTPUT_IGST, invoice.igst, Decimal("0"))] if Decimal(invoice.igst or 0) > 0 else [
         (ACCOUNT_OUTPUT_CGST, invoice.cgst, Decimal("0")),
         (ACCOUNT_OUTPUT_SGST, invoice.sgst, Decimal("0")),
+    ]
+    post_journal_entry(db, date.today(), f"Cancellation of invoice {invoice.number}", "InvoiceCancellation", invoice.id, [
+        (ACCOUNT_SALES, revenue_amount, Decimal("0")),
+        *gst_lines,
         (ACCOUNT_RECEIVABLE, Decimal("0"), invoice.grand_total),
     ])
     db.commit()
@@ -326,12 +376,15 @@ def reopen_invoice(db: Session, invoice_id: int) -> models.Invoice:
     paid = Decimal(invoice.paid_amount or 0)
     invoice.status = "Paid" if pending <= 0 else "Partially Paid" if paid > 0 else "Unpaid"
     invoice.customer.pending_payment = money(Decimal(invoice.customer.pending_payment or 0) + pending)
-    revenue_amount = money(Decimal(invoice.grand_total) - Decimal(invoice.cgst) - Decimal(invoice.sgst))
+    revenue_amount = money(Decimal(invoice.grand_total) - Decimal(invoice.cgst) - Decimal(invoice.sgst) - Decimal(invoice.igst))
+    gst_lines = [(ACCOUNT_OUTPUT_IGST, Decimal("0"), invoice.igst)] if Decimal(invoice.igst or 0) > 0 else [
+        (ACCOUNT_OUTPUT_CGST, Decimal("0"), invoice.cgst),
+        (ACCOUNT_OUTPUT_SGST, Decimal("0"), invoice.sgst),
+    ]
     post_journal_entry(db, date.today(), f"Reopening of invoice {invoice.number}", "InvoiceReopen", invoice.id, [
         (ACCOUNT_RECEIVABLE, invoice.grand_total, Decimal("0")),
         (ACCOUNT_SALES, Decimal("0"), revenue_amount),
-        (ACCOUNT_OUTPUT_CGST, Decimal("0"), invoice.cgst),
-        (ACCOUNT_OUTPUT_SGST, Decimal("0"), invoice.sgst),
+        *gst_lines,
     ])
     db.commit()
     db.expire_all()
@@ -346,15 +399,23 @@ def _derive_balance_status(invoice: models.Invoice) -> str:
 
 ACCOUNT_CASH = "1000"
 ACCOUNT_BANK = "1010"
+ACCOUNT_OWNERS_CAPITAL = "3000"
 ACCOUNT_RECEIVABLE = "1100"
 ACCOUNT_INPUT_CGST = "1200"
 ACCOUNT_INPUT_SGST = "1210"
+ACCOUNT_INPUT_IGST = "1220"
 ACCOUNT_PAYABLE = "2000"
 ACCOUNT_OUTPUT_CGST = "2100"
 ACCOUNT_OUTPUT_SGST = "2110"
+ACCOUNT_OUTPUT_IGST = "2120"
 ACCOUNT_SALES = "4000"
 ACCOUNT_SALES_RETURNS = "4100"
+ACCOUNT_OPENING_BALANCE_EQUITY = "3800"
 ACCOUNT_PURCHASES = "5000"
+ACCOUNT_FIXED_ASSETS = "1500"
+ACCOUNT_ACCUMULATED_DEPRECIATION = "1590"
+ACCOUNT_GAIN_LOSS_ON_DISPOSAL = "4200"
+ACCOUNT_DEPRECIATION_EXPENSE = "5200"
 EXPENSE_ACCOUNT_CODES = {
     "Rent": "5100",
     "Salaries": "5110",
@@ -367,8 +428,42 @@ EXPENSE_ACCOUNT_CODES = {
 }
 
 
+def _ensure_period_open(db: Session, txn_date) -> None:
+    closed = db.scalar(
+        select(models.FinancialYear).where(
+            models.FinancialYear.status == "Closed",
+            models.FinancialYear.start_date <= txn_date,
+            models.FinancialYear.end_date >= txn_date,
+        )
+    )
+    if closed:
+        raise ValueError(f"{txn_date} falls within {closed.label}, which is closed. Reopen the financial year to post here.")
+
+
 def _cash_or_bank_code(mode: str) -> str:
     return ACCOUNT_CASH if mode == "Cash" else ACCOUNT_BANK
+
+
+def _split_cgst_sgst(total: Decimal, cgst_code: str, sgst_code: str, debit: bool) -> list[tuple[str, Decimal, Decimal]]:
+    total = Decimal(total)
+    half = money(total / 2)
+    remainder = money(total - half)
+    if debit:
+        return [(cgst_code, half, Decimal("0")), (sgst_code, remainder, Decimal("0"))]
+    return [(cgst_code, Decimal("0"), half), (sgst_code, Decimal("0"), remainder)]
+
+
+def _business_state(db: Session) -> str:
+    settings = db.get(models.BusinessSettings, 1)
+    return (settings.state if settings else "") or ""
+
+
+def is_interstate(business_state: str, other_state: str) -> bool:
+    business_state = (business_state or "").strip().lower()
+    other_state = (other_state or "").strip().lower()
+    if not business_state or not other_state:
+        return False
+    return business_state != other_state
 
 
 def _expense_account_code(category: str) -> str:
@@ -402,6 +497,37 @@ def post_journal_entry(db: Session, entry_date, narration: str, source_type: str
     db.add(entry)
     db.flush()
     return entry
+
+
+def create_manual_journal_entry(db: Session, entry_date, narration: str, lines: list[tuple[int, Decimal, Decimal]]) -> models.JournalEntry:
+    _ensure_period_open(db, entry_date)
+    if not narration or not narration.strip():
+        raise ValueError("Narration is required")
+    nonzero_lines = [(account_id, money(debit), money(credit)) for account_id, debit, credit in lines if money(debit) > 0 or money(credit) > 0]
+    if len(nonzero_lines) < 2:
+        raise ValueError("A journal entry needs at least two lines with an amount")
+    resolved_lines = []
+    for account_id, debit, credit in nonzero_lines:
+        account = db.get(models.ChartOfAccount, account_id)
+        if not account:
+            raise ValueError(f"Account {account_id} not found")
+        resolved_lines.append((account.code, debit, credit))
+    entry = post_journal_entry(db, entry_date, narration.strip(), "Manual", None, resolved_lines)
+    db.commit()
+    return get_journal_entry(db, entry.id)
+
+
+def reverse_manual_journal_entry(db: Session, entry_id: int) -> models.JournalEntry:
+    entry = get_journal_entry(db, entry_id)
+    if entry.source_type != "Manual":
+        raise ValueError("Only manually created journal entries can be reversed")
+    already_reversed = db.scalar(select(models.JournalEntry).where(models.JournalEntry.source_type == "ManualReversal", models.JournalEntry.source_id == entry.id))
+    if already_reversed:
+        raise ValueError("This journal entry has already been reversed")
+    reversal_lines = [(line.account.code, line.credit, line.debit) for line in entry.lines]
+    reversal = post_journal_entry(db, date.today(), f"Reversal of {entry.number}", "ManualReversal", entry.id, reversal_lines)
+    db.commit()
+    return get_journal_entry(db, reversal.id)
 
 
 def _delete_source_journal_entries(db: Session, source_type: str, source_id: int) -> None:
@@ -453,6 +579,7 @@ def get_debit_note(db: Session, debit_note_id: int) -> models.DebitNote:
 
 
 def issue_credit_note(db: Session, invoice_id: int, payload: CreditNoteCreate) -> models.CreditNote:
+    _ensure_period_open(db, payload.note_date)
     invoice = get_invoice(db, invoice_id)
     if invoice.status == "Cancelled":
         raise ValueError("Cannot issue a credit note against a cancelled invoice")
@@ -482,11 +609,11 @@ def issue_credit_note(db: Session, invoice_id: int, payload: CreditNoteCreate) -
     customer.pending_payment = money(max(Decimal("0"), Decimal(customer.pending_payment or 0) - grand_total))
     db.add(credit_note)
     db.flush()
-    gst_half = money(Decimal(credit_note.gst) / 2)
+    interstate = Decimal(invoice.igst or 0) > 0
+    gst_lines = [(ACCOUNT_OUTPUT_IGST, credit_note.gst, Decimal("0"))] if interstate else _split_cgst_sgst(credit_note.gst, ACCOUNT_OUTPUT_CGST, ACCOUNT_OUTPUT_SGST, debit=True)
     post_journal_entry(db, credit_note.note_date, f"Credit note {credit_note.number} against {invoice.number}", "CreditNote", credit_note.id, [
         (ACCOUNT_SALES_RETURNS, credit_note.subtotal, Decimal("0")),
-        (ACCOUNT_OUTPUT_CGST, gst_half, Decimal("0")),
-        (ACCOUNT_OUTPUT_SGST, Decimal(credit_note.gst) - gst_half, Decimal("0")),
+        *gst_lines,
         (ACCOUNT_RECEIVABLE, Decimal("0"), credit_note.grand_total),
     ])
     db.commit()
@@ -502,12 +629,12 @@ def cancel_credit_note(db: Session, credit_note_id: int) -> models.CreditNote:
     invoice.status = _derive_balance_status(invoice)
     invoice.customer.pending_payment = money(Decimal(invoice.customer.pending_payment or 0) + Decimal(credit_note.grand_total))
     credit_note.status = "Cancelled"
-    gst_half = money(Decimal(credit_note.gst) / 2)
+    interstate = Decimal(invoice.igst or 0) > 0
+    gst_lines = [(ACCOUNT_OUTPUT_IGST, Decimal("0"), credit_note.gst)] if interstate else _split_cgst_sgst(credit_note.gst, ACCOUNT_OUTPUT_CGST, ACCOUNT_OUTPUT_SGST, debit=False)
     post_journal_entry(db, date.today(), f"Cancellation of credit note {credit_note.number}", "CreditNoteCancellation", credit_note.id, [
         (ACCOUNT_RECEIVABLE, credit_note.grand_total, Decimal("0")),
         (ACCOUNT_SALES_RETURNS, Decimal("0"), credit_note.subtotal),
-        (ACCOUNT_OUTPUT_CGST, Decimal("0"), gst_half),
-        (ACCOUNT_OUTPUT_SGST, Decimal("0"), Decimal(credit_note.gst) - gst_half),
+        *gst_lines,
     ])
     db.commit()
     db.expire_all()
@@ -515,6 +642,7 @@ def cancel_credit_note(db: Session, credit_note_id: int) -> models.CreditNote:
 
 
 def issue_debit_note(db: Session, invoice_id: int, payload: DebitNoteCreate) -> models.DebitNote:
+    _ensure_period_open(db, payload.note_date)
     invoice = get_invoice(db, invoice_id)
     if invoice.status == "Cancelled":
         raise ValueError("Cannot issue a debit note against a cancelled invoice")
@@ -542,12 +670,12 @@ def issue_debit_note(db: Session, invoice_id: int, payload: DebitNoteCreate) -> 
     customer.pending_payment = money(Decimal(customer.pending_payment or 0) + grand_total)
     db.add(debit_note)
     db.flush()
-    gst_half = money(Decimal(debit_note.gst) / 2)
+    interstate = Decimal(invoice.igst or 0) > 0
+    gst_lines = [(ACCOUNT_OUTPUT_IGST, Decimal("0"), debit_note.gst)] if interstate else _split_cgst_sgst(debit_note.gst, ACCOUNT_OUTPUT_CGST, ACCOUNT_OUTPUT_SGST, debit=False)
     post_journal_entry(db, debit_note.note_date, f"Debit note {debit_note.number} against {invoice.number}", "DebitNote", debit_note.id, [
         (ACCOUNT_RECEIVABLE, debit_note.grand_total, Decimal("0")),
         (ACCOUNT_SALES, Decimal("0"), debit_note.subtotal),
-        (ACCOUNT_OUTPUT_CGST, Decimal("0"), gst_half),
-        (ACCOUNT_OUTPUT_SGST, Decimal("0"), Decimal(debit_note.gst) - gst_half),
+        *gst_lines,
     ])
     db.commit()
     return get_debit_note(db, debit_note.id)
@@ -562,11 +690,11 @@ def cancel_debit_note(db: Session, debit_note_id: int) -> models.DebitNote:
     invoice.status = _derive_balance_status(invoice)
     invoice.customer.pending_payment = money(max(Decimal("0"), Decimal(invoice.customer.pending_payment or 0) - Decimal(debit_note.grand_total)))
     debit_note.status = "Cancelled"
-    gst_half = money(Decimal(debit_note.gst) / 2)
+    interstate = Decimal(invoice.igst or 0) > 0
+    gst_lines = [(ACCOUNT_OUTPUT_IGST, debit_note.gst, Decimal("0"))] if interstate else _split_cgst_sgst(debit_note.gst, ACCOUNT_OUTPUT_CGST, ACCOUNT_OUTPUT_SGST, debit=True)
     post_journal_entry(db, date.today(), f"Cancellation of debit note {debit_note.number}", "DebitNoteCancellation", debit_note.id, [
         (ACCOUNT_SALES, debit_note.subtotal, Decimal("0")),
-        (ACCOUNT_OUTPUT_CGST, gst_half, Decimal("0")),
-        (ACCOUNT_OUTPUT_SGST, Decimal(debit_note.gst) - gst_half, Decimal("0")),
+        *gst_lines,
         (ACCOUNT_RECEIVABLE, Decimal("0"), debit_note.grand_total),
     ])
     db.commit()
@@ -588,6 +716,7 @@ def get_purchase_bill(db: Session, purchase_bill_id: int) -> models.PurchaseBill
 
 
 def create_purchase_bill(db: Session, vendor_id: int, payload: PurchaseBillCreate) -> models.PurchaseBill:
+    _ensure_period_open(db, payload.bill_date)
     vendor = db.get(models.Vendor, vendor_id)
     if not vendor:
         raise ValueError("Vendor not found")
@@ -595,7 +724,12 @@ def create_purchase_bill(db: Session, vendor_id: int, payload: PurchaseBillCreat
     grand_total = money(subtotal + gst_total)
     if grand_total <= 0:
         raise ValueError("Purchase bill total must be greater than zero")
+    for item, payload_item in zip(items, payload.items):
+        item.stock_item_id = payload_item.stock_item_id
+        if payload_item.stock_item_id and not db.get(models.StockItem, payload_item.stock_item_id):
+            raise ValueError(f"Stock item {payload_item.stock_item_id} not found")
 
+    interstate = is_interstate(_business_state(db), vendor.state)
     bill = models.PurchaseBill(
         number=next_document_number(db, models.PurchaseBill, "PB"),
         vendor_id=vendor.id,
@@ -604,8 +738,9 @@ def create_purchase_bill(db: Session, vendor_id: int, payload: PurchaseBillCreat
         due_date=payload.due_date,
         status="Unpaid",
         subtotal=money(subtotal),
-        cgst=money(gst_total / 2),
-        sgst=money(gst_total / 2),
+        cgst=Decimal("0") if interstate else money(gst_total / 2),
+        sgst=Decimal("0") if interstate else money(gst_total / 2),
+        igst=gst_total if interstate else Decimal("0"),
         grand_total=grand_total,
         paid_amount=Decimal("0"),
         pending_balance=grand_total,
@@ -616,17 +751,26 @@ def create_purchase_bill(db: Session, vendor_id: int, payload: PurchaseBillCreat
     vendor.pending_payment = money(Decimal(vendor.pending_payment or 0) + grand_total)
     db.add(bill)
     db.flush()
-    post_journal_entry(db, bill.bill_date, f"Purchase bill {bill.number} from {vendor.name}", "PurchaseBill", bill.id, [
-        (ACCOUNT_PURCHASES, bill.subtotal, Decimal("0")),
+    gst_lines = [(ACCOUNT_INPUT_IGST, bill.igst, Decimal("0"))] if interstate else [
         (ACCOUNT_INPUT_CGST, bill.cgst, Decimal("0")),
         (ACCOUNT_INPUT_SGST, bill.sgst, Decimal("0")),
+    ]
+    post_journal_entry(db, bill.bill_date, f"Purchase bill {bill.number} from {vendor.name}", "PurchaseBill", bill.id, [
+        (ACCOUNT_PURCHASES, bill.subtotal, Decimal("0")),
+        *gst_lines,
         (ACCOUNT_PAYABLE, Decimal("0"), bill.grand_total),
     ])
+    for item in bill.items:
+        if item.stock_item_id:
+            stock_item = db.get(models.StockItem, item.stock_item_id)
+            _post_stock_movement(db, stock_item, bill.bill_date, "In", Decimal(item.quantity), "Purchase", reference=bill.number, source_type="PurchaseBill", source_id=bill.id)
     db.commit()
     return get_purchase_bill(db, bill.id)
 
 
 def record_vendor_payment(db: Session, purchase_bill_id: int, amount: Decimal, **kwargs) -> models.PurchaseBill:
+    if kwargs.get("payment_date"):
+        _ensure_period_open(db, kwargs["payment_date"])
     bill = get_purchase_bill(db, purchase_bill_id)
     if bill.status == "Cancelled":
         raise ValueError("Cannot record payment against a cancelled purchase bill")
@@ -661,11 +805,15 @@ def cancel_purchase_bill(db: Session, purchase_bill_id: int, force: bool = False
     vendor = bill.vendor
     vendor.pending_payment = money(max(Decimal("0"), Decimal(vendor.pending_payment or 0) - Decimal(bill.pending_balance or 0)))
     bill.status = "Cancelled"
+    interstate = Decimal(bill.igst or 0) > 0
+    gst_lines = [(ACCOUNT_INPUT_IGST, Decimal("0"), bill.igst)] if interstate else [
+        (ACCOUNT_INPUT_CGST, Decimal("0"), bill.cgst),
+        (ACCOUNT_INPUT_SGST, Decimal("0"), bill.sgst),
+    ]
     post_journal_entry(db, date.today(), f"Cancellation of purchase bill {bill.number}", "PurchaseBillCancellation", bill.id, [
         (ACCOUNT_PAYABLE, bill.grand_total, Decimal("0")),
         (ACCOUNT_PURCHASES, Decimal("0"), bill.subtotal),
-        (ACCOUNT_INPUT_CGST, Decimal("0"), bill.cgst),
-        (ACCOUNT_INPUT_SGST, Decimal("0"), bill.sgst),
+        *gst_lines,
     ])
     db.commit()
     db.expire_all()
@@ -680,10 +828,14 @@ def reopen_purchase_bill(db: Session, purchase_bill_id: int) -> models.PurchaseB
     paid = Decimal(bill.paid_amount or 0)
     bill.status = "Paid" if pending <= 0 else "Partially Paid" if paid > 0 else "Unpaid"
     bill.vendor.pending_payment = money(Decimal(bill.vendor.pending_payment or 0) + pending)
-    post_journal_entry(db, date.today(), f"Reopening of purchase bill {bill.number}", "PurchaseBillReopen", bill.id, [
-        (ACCOUNT_PURCHASES, bill.subtotal, Decimal("0")),
+    interstate = Decimal(bill.igst or 0) > 0
+    gst_lines = [(ACCOUNT_INPUT_IGST, bill.igst, Decimal("0"))] if interstate else [
         (ACCOUNT_INPUT_CGST, bill.cgst, Decimal("0")),
         (ACCOUNT_INPUT_SGST, bill.sgst, Decimal("0")),
+    ]
+    post_journal_entry(db, date.today(), f"Reopening of purchase bill {bill.number}", "PurchaseBillReopen", bill.id, [
+        (ACCOUNT_PURCHASES, bill.subtotal, Decimal("0")),
+        *gst_lines,
         (ACCOUNT_PAYABLE, Decimal("0"), bill.grand_total),
     ])
     db.commit()
@@ -722,6 +874,7 @@ def _post_expense_journal_entry(db: Session, expense: models.Expense) -> None:
 
 
 def create_expense(db: Session, payload: ExpenseCreate) -> models.Expense:
+    _ensure_period_open(db, payload.expense_date)
     expense = models.Expense()
     _apply_expense_payload(expense, payload)
     db.add(expense)
@@ -732,6 +885,7 @@ def create_expense(db: Session, payload: ExpenseCreate) -> models.Expense:
 
 
 def update_expense(db: Session, expense_id: int, payload: ExpenseCreate) -> models.Expense:
+    _ensure_period_open(db, payload.expense_date)
     expense = get_expense(db, expense_id)
     _apply_expense_payload(expense, payload)
     db.flush()
@@ -798,3 +952,328 @@ def get_trial_balance(db: Session) -> list[dict]:
             "balance": money(debit_total - credit_total),
         })
     return rows
+
+
+def get_fixed_asset(db: Session, fixed_asset_id: int) -> models.FixedAsset:
+    stmt = (
+        select(models.FixedAsset)
+        .where(models.FixedAsset.id == fixed_asset_id)
+        .options(selectinload(models.FixedAsset.depreciation_entries), joinedload(models.FixedAsset.vendor))
+    )
+    return db.scalars(stmt).unique().one()
+
+
+def list_fixed_assets(db: Session) -> list[models.FixedAsset]:
+    stmt = (
+        select(models.FixedAsset)
+        .options(selectinload(models.FixedAsset.depreciation_entries), joinedload(models.FixedAsset.vendor))
+        .order_by(models.FixedAsset.id.desc())
+    )
+    return db.scalars(stmt).unique().all()
+
+
+def create_fixed_asset(db: Session, payload: FixedAssetCreate) -> models.FixedAsset:
+    _ensure_period_open(db, payload.purchase_date)
+    if payload.purchase_cost <= 0:
+        raise ValueError("Purchase cost must be greater than zero")
+    if payload.salvage_value < 0 or payload.salvage_value >= payload.purchase_cost:
+        raise ValueError("Salvage value must be zero or more, and less than the purchase cost")
+    if payload.useful_life_years <= 0:
+        raise ValueError("Useful life must be greater than zero years")
+    if payload.depreciation_method == "Written Down Value" and (not payload.depreciation_rate or payload.depreciation_rate <= 0):
+        raise ValueError("Written Down Value depreciation requires a depreciation rate")
+    if payload.vendor_id and not db.get(models.Vendor, payload.vendor_id):
+        raise ValueError("Vendor not found")
+
+    asset = models.FixedAsset(
+        code=next_code(db, models.FixedAsset, "FA"),
+        name=payload.name,
+        category=payload.category,
+        purchase_date=payload.purchase_date,
+        purchase_cost=money(payload.purchase_cost),
+        salvage_value=money(payload.salvage_value),
+        useful_life_years=payload.useful_life_years,
+        depreciation_method=payload.depreciation_method,
+        depreciation_rate=payload.depreciation_rate,
+        vendor_id=payload.vendor_id,
+        location=payload.location,
+        notes=payload.notes,
+        accumulated_depreciation=Decimal("0"),
+        status="Active",
+    )
+    db.add(asset)
+    db.flush()
+
+    funding_code = _cash_or_bank_code(payload.payment_mode)
+    payable_or_funding = ACCOUNT_PAYABLE if payload.vendor_id else funding_code
+    post_journal_entry(db, asset.purchase_date, f"Acquisition of fixed asset {asset.name} ({asset.code})", "FixedAsset", asset.id, [
+        (ACCOUNT_FIXED_ASSETS, asset.purchase_cost, Decimal("0")),
+        (payable_or_funding, Decimal("0"), asset.purchase_cost),
+    ])
+    if payload.vendor_id:
+        vendor = db.get(models.Vendor, payload.vendor_id)
+        vendor.pending_payment = money(Decimal(vendor.pending_payment or 0) + asset.purchase_cost)
+    db.commit()
+    return get_fixed_asset(db, asset.id)
+
+
+def record_depreciation(db: Session, fixed_asset_id: int, as_of_date) -> models.FixedAsset:
+    _ensure_period_open(db, as_of_date)
+    asset = get_fixed_asset(db, fixed_asset_id)
+    if asset.status != "Active":
+        raise ValueError("Depreciation can only be recorded for active assets")
+    period_start = asset.last_depreciation_date or asset.purchase_date
+    if as_of_date <= period_start:
+        raise ValueError("The depreciation date must be after the last depreciation date")
+
+    depreciable_base = money(Decimal(asset.purchase_cost) - Decimal(asset.salvage_value))
+    book_value = money(Decimal(asset.purchase_cost) - Decimal(asset.accumulated_depreciation))
+    remaining = money(book_value - Decimal(asset.salvage_value))
+    if remaining <= 0:
+        raise ValueError("This asset is already fully depreciated")
+
+    days = (as_of_date - period_start).days
+    if asset.depreciation_method == "Written Down Value":
+        annual_amount = money(book_value * Decimal(asset.depreciation_rate) / Decimal("100"))
+    else:
+        annual_amount = money(depreciable_base / Decimal(asset.useful_life_years))
+    period_amount = money(annual_amount * Decimal(days) / Decimal("365"))
+    amount = min(period_amount, remaining)
+    if amount <= 0:
+        raise ValueError("No depreciation to record for this period")
+
+    asset.accumulated_depreciation = money(Decimal(asset.accumulated_depreciation) + amount)
+    asset.last_depreciation_date = as_of_date
+    book_value_after = money(Decimal(asset.purchase_cost) - Decimal(asset.accumulated_depreciation))
+
+    entry = models.DepreciationEntry(
+        fixed_asset_id=asset.id,
+        period_start=period_start,
+        period_end=as_of_date,
+        amount=amount,
+        book_value_after=book_value_after,
+    )
+    db.add(entry)
+    db.flush()
+
+    post_journal_entry(db, as_of_date, f"Depreciation for {asset.name} ({asset.code})", "Depreciation", entry.id, [
+        (ACCOUNT_DEPRECIATION_EXPENSE, amount, Decimal("0")),
+        (ACCOUNT_ACCUMULATED_DEPRECIATION, Decimal("0"), amount),
+    ])
+    db.commit()
+    db.expire_all()
+    return get_fixed_asset(db, asset.id)
+
+
+def dispose_fixed_asset(db: Session, fixed_asset_id: int, disposal_date, disposal_value: Decimal) -> models.FixedAsset:
+    _ensure_period_open(db, disposal_date)
+    asset = get_fixed_asset(db, fixed_asset_id)
+    if asset.status != "Active":
+        raise ValueError("This asset has already been disposed")
+    disposal_value = money(disposal_value)
+    if disposal_value < 0:
+        raise ValueError("Disposal value cannot be negative")
+
+    book_value = money(Decimal(asset.purchase_cost) - Decimal(asset.accumulated_depreciation))
+    gain_loss = money(disposal_value - book_value)
+
+    lines: list[tuple[str, Decimal, Decimal]] = [
+        (ACCOUNT_BANK, disposal_value, Decimal("0")),
+        (ACCOUNT_ACCUMULATED_DEPRECIATION, Decimal(asset.accumulated_depreciation), Decimal("0")),
+        (ACCOUNT_FIXED_ASSETS, Decimal("0"), Decimal(asset.purchase_cost)),
+    ]
+    if gain_loss > 0:
+        lines.append((ACCOUNT_GAIN_LOSS_ON_DISPOSAL, Decimal("0"), gain_loss))
+    elif gain_loss < 0:
+        lines.append((ACCOUNT_GAIN_LOSS_ON_DISPOSAL, -gain_loss, Decimal("0")))
+
+    asset.status = "Disposed"
+    asset.disposal_date = disposal_date
+    asset.disposal_value = disposal_value
+    db.flush()
+
+    post_journal_entry(db, disposal_date, f"Disposal of fixed asset {asset.name} ({asset.code})", "FixedAssetDisposal", asset.id, lines)
+    db.commit()
+    db.expire_all()
+    return get_fixed_asset(db, asset.id)
+
+
+def list_financial_years(db: Session) -> list[models.FinancialYear]:
+    return db.scalars(select(models.FinancialYear).order_by(models.FinancialYear.start_date)).all()
+
+
+def get_financial_year(db: Session, financial_year_id: int) -> models.FinancialYear:
+    fy = db.get(models.FinancialYear, financial_year_id)
+    if not fy:
+        raise ValueError("Financial year not found")
+    return fy
+
+
+def create_financial_year(db: Session, payload: FinancialYearCreate) -> models.FinancialYear:
+    if payload.end_date <= payload.start_date:
+        raise ValueError("End date must be after start date")
+    overlap = db.scalar(
+        select(models.FinancialYear).where(
+            models.FinancialYear.start_date <= payload.end_date,
+            models.FinancialYear.end_date >= payload.start_date,
+        )
+    )
+    if overlap:
+        raise ValueError(f"Overlaps with existing {overlap.label}")
+    label = payload.label.strip() or f"FY {payload.start_date.year}-{str(payload.end_date.year)[-2:]}"
+    if db.scalar(select(models.FinancialYear).where(models.FinancialYear.label == label)):
+        raise ValueError(f"{label} already exists")
+    fy = models.FinancialYear(label=label, start_date=payload.start_date, end_date=payload.end_date, status="Open")
+    db.add(fy)
+    db.commit()
+    db.refresh(fy)
+    return fy
+
+
+def close_financial_year(
+    db: Session,
+    financial_year_id: int,
+    total_income: Decimal,
+    total_expense: Decimal,
+    net_profit: Decimal,
+    total_assets: Decimal,
+    total_liabilities: Decimal,
+    total_equity: Decimal,
+) -> models.FinancialYear:
+    fy = get_financial_year(db, financial_year_id)
+    if fy.status == "Closed":
+        raise ValueError(f"{fy.label} is already closed")
+    if fy.end_date > date.today():
+        raise ValueError("Cannot close a financial year that has not ended yet")
+    earlier_open = db.scalar(
+        select(models.FinancialYear).where(models.FinancialYear.status == "Open", models.FinancialYear.end_date < fy.end_date)
+    )
+    if earlier_open:
+        raise ValueError(f"Close {earlier_open.label} first")
+
+    fy.total_income = money(total_income)
+    fy.total_expense = money(total_expense)
+    fy.net_profit = money(net_profit)
+    fy.total_assets = money(total_assets)
+    fy.total_liabilities = money(total_liabilities)
+    fy.total_equity = money(total_equity)
+    fy.status = "Closed"
+    fy.closed_at = datetime.utcnow()
+    db.commit()
+    db.refresh(fy)
+    return fy
+
+
+def reopen_financial_year(db: Session, financial_year_id: int) -> models.FinancialYear:
+    fy = get_financial_year(db, financial_year_id)
+    if fy.status != "Closed":
+        raise ValueError(f"{fy.label} is not closed")
+    later_closed = db.scalar(
+        select(models.FinancialYear).where(models.FinancialYear.status == "Closed", models.FinancialYear.start_date > fy.start_date)
+    )
+    if later_closed:
+        raise ValueError(f"Reopen {later_closed.label} first")
+    fy.status = "Open"
+    fy.closed_at = None
+    db.commit()
+    db.refresh(fy)
+    return fy
+
+
+def get_stock_item(db: Session, stock_item_id: int) -> models.StockItem:
+    stmt = select(models.StockItem).where(models.StockItem.id == stock_item_id).options(selectinload(models.StockItem.movements))
+    item = db.scalars(stmt).unique().one_or_none()
+    if not item:
+        raise ValueError("Stock item not found")
+    return item
+
+
+def list_stock_items(db: Session, low_stock: bool = False) -> list[models.StockItem]:
+    stmt = select(models.StockItem).options(selectinload(models.StockItem.movements)).order_by(models.StockItem.name)
+    items = db.scalars(stmt).unique().all()
+    if low_stock:
+        items = [i for i in items if Decimal(i.reorder_level) > 0 and Decimal(i.quantity_on_hand) <= Decimal(i.reorder_level)]
+    return items
+
+
+def _post_stock_movement(
+    db: Session,
+    stock_item: models.StockItem,
+    movement_date,
+    movement_type: str,
+    quantity: Decimal,
+    reason: str,
+    reference: str = "",
+    source_type: str = "Manual",
+    source_id: int | None = None,
+    notes: str = "",
+) -> models.StockMovement:
+    if movement_type not in ("In", "Out"):
+        raise ValueError("Movement type must be 'In' or 'Out'")
+    quantity = Decimal(quantity)
+    if quantity <= 0:
+        raise ValueError("Quantity must be greater than zero")
+    current = Decimal(stock_item.quantity_on_hand)
+    if movement_type == "In":
+        new_balance = current + quantity
+    else:
+        if quantity > current:
+            raise ValueError(f"Insufficient stock: {current} {stock_item.unit} on hand for {stock_item.name}")
+        new_balance = current - quantity
+    stock_item.quantity_on_hand = new_balance
+    movement = models.StockMovement(
+        stock_item_id=stock_item.id,
+        movement_date=movement_date,
+        movement_type=movement_type,
+        reason=reason,
+        quantity=quantity,
+        balance_after=new_balance,
+        reference=reference,
+        source_type=source_type,
+        source_id=source_id,
+        notes=notes,
+    )
+    db.add(movement)
+    db.flush()
+    return movement
+
+
+def create_stock_item(db: Session, payload: StockItemCreate) -> models.StockItem:
+    item = models.StockItem(
+        code=next_code(db, models.StockItem, "STK"),
+        name=payload.name,
+        category=payload.category,
+        unit=payload.unit,
+        hsn_code=payload.hsn_code,
+        reorder_level=money(payload.reorder_level),
+        quantity_on_hand=Decimal("0"),
+        notes=payload.notes,
+        status=payload.status,
+    )
+    db.add(item)
+    db.flush()
+    if Decimal(payload.opening_quantity) > 0:
+        _post_stock_movement(db, item, date.today(), "In", Decimal(payload.opening_quantity), "Opening Stock")
+    db.commit()
+    return get_stock_item(db, item.id)
+
+
+def update_stock_item(db: Session, stock_item_id: int, payload: StockItemCreate) -> models.StockItem:
+    item = get_stock_item(db, stock_item_id)
+    item.name = payload.name
+    item.category = payload.category
+    item.unit = payload.unit
+    item.hsn_code = payload.hsn_code
+    item.reorder_level = money(payload.reorder_level)
+    item.notes = payload.notes
+    item.status = payload.status
+    db.commit()
+    return get_stock_item(db, stock_item_id)
+
+
+def record_stock_movement(db: Session, stock_item_id: int, payload: StockMovementCreate) -> models.StockItem:
+    item = get_stock_item(db, stock_item_id)
+    _post_stock_movement(db, item, payload.movement_date, payload.movement_type, payload.quantity, payload.reason, reference=payload.reference, notes=payload.notes)
+    db.commit()
+    db.expire_all()
+    return get_stock_item(db, stock_item_id)

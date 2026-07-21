@@ -3,14 +3,15 @@ import { Plus, Save, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { Button, Card, Field, Input, PageHeader, Select } from '../components/UI';
-import { PurchaseBillItem, Vendor } from '../types';
+import { PurchaseBillItem, StockItem, Vendor } from '../types';
 import { currency } from '../utils';
 
-const emptyItem = (): PurchaseBillItem => ({ description: '', category: '', hsn_code: '', unit: 'Nos', quantity: 1, rate: 0, gst_percent: 18, amount: 0 });
+const emptyItem = (): PurchaseBillItem => ({ description: '', category: '', hsn_code: '', unit: 'Nos', quantity: 1, rate: 0, gst_percent: 18, amount: 0, stock_item_id: null });
 
 export default function CreatePurchaseBill() {
   const navigate = useNavigate();
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [vendorId, setVendorId] = useState<number>(0);
   const [vendorBillNumber, setVendorBillNumber] = useState('');
   const [billDate, setBillDate] = useState(new Date().toISOString().slice(0, 10));
@@ -19,7 +20,10 @@ export default function CreatePurchaseBill() {
   const [items, setItems] = useState<PurchaseBillItem[]>([emptyItem()]);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { api.get('/vendors', { params: { status: 'Active' } }).then(r => { setVendors(r.data); if (r.data[0]) setVendorId(r.data[0].id); }); }, []);
+  useEffect(() => {
+    api.get('/vendors', { params: { status: 'Active' } }).then(r => { setVendors(r.data); if (r.data[0]) setVendorId(r.data[0].id); });
+    api.get('/stock-items').then(r => setStockItems(r.data));
+  }, []);
 
   const update = (index: number, key: keyof PurchaseBillItem, value: string) => {
     setItems(prev => prev.map((row, i) => {
@@ -29,6 +33,10 @@ export default function CreatePurchaseBill() {
       if (numericFields.includes(String(key))) next.amount = Number((Number(next.quantity) * Number(next.rate)).toFixed(2));
       return next;
     }));
+  };
+
+  const updateStockItem = (index: number, value: string) => {
+    setItems(prev => prev.map((row, i) => i === index ? { ...row, stock_item_id: value ? Number(value) : null } : row));
   };
 
   const totals = useMemo(() => {
@@ -62,7 +70,7 @@ export default function CreatePurchaseBill() {
 
     <Card className="quote-items-card">
       <div className="quote-items-toolbar"><h3>Bill Items</h3><div className="quote-items-actions"><Button onClick={() => setItems([...items, emptyItem()])}><Plus size={15} /> Add Item</Button></div></div>
-      <div className="table-wrap"><table className="data-table editable-table"><thead><tr><th>Description</th><th>Category</th><th>HSN</th><th>Unit</th><th>Qty</th><th>Rate (Rs.)</th><th>GST %</th><th>Amount (Rs.)</th><th>Action</th></tr></thead><tbody>{items.map((row, i) => <tr key={i}>
+      <div className="table-wrap"><table className="data-table editable-table"><thead><tr><th>Description</th><th>Category</th><th>HSN</th><th>Unit</th><th>Qty</th><th>Rate (Rs.)</th><th>GST %</th><th>Amount (Rs.)</th><th>Stock Item</th><th>Action</th></tr></thead><tbody>{items.map((row, i) => <tr key={i}>
         <td><input value={row.description} onChange={e => update(i, 'description', e.target.value)} /></td>
         <td><input value={row.category} onChange={e => update(i, 'category', e.target.value)} /></td>
         <td><input value={row.hsn_code} onChange={e => update(i, 'hsn_code', e.target.value)} /></td>
@@ -71,6 +79,7 @@ export default function CreatePurchaseBill() {
         <td><input type="number" value={row.rate} onChange={e => update(i, 'rate', e.target.value)} /></td>
         <td><input type="number" value={row.gst_percent} onChange={e => update(i, 'gst_percent', e.target.value)} /></td>
         <td className="amount">{currency(row.amount, 2)}</td>
+        <td><Select value={row.stock_item_id ?? ''} onChange={e => updateStockItem(i, e.target.value)} style={{ minWidth: 140 }}><option value="">None</option>{stockItems.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></td>
         <td><button className="delete-mini" onClick={() => setItems(items.filter((_, x) => x !== i))}><Trash2 size={14} /></button></td>
       </tr>)}</tbody></table></div>
       <div className="quote-table-footer"><span /><div><b>{currency(totals.subtotal, 2)}</b></div></div>

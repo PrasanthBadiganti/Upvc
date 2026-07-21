@@ -1,11 +1,13 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { BellRing, CalendarDays, Eye, FileText, Mail, MapPin, MoreVertical, Phone, Plus, ReceiptText, Search, UserPlus2, UsersRound, WalletCards } from 'lucide-react';
+import { BellRing, CalendarDays, Eye, FileText, Mail, MapPin, MoreVertical, Phone, Plus, ReceiptText, Search, Upload, UserPlus2, UsersRound, WalletCards } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../api';
 import { Button, Card, Field, Input, Loading, Modal, PageHeader, Select } from '../components/UI';
+import ImportModal from '../components/ImportModal';
 import MetricCard from '../components/MetricCard';
 import Status from '../components/Status';
 import { Customer, CustomerProfile } from '../types';
-import { currency, shortDate, shortTime, toLocalInput } from '../utils';
+import { currency, INDIAN_STATES, shortDate, shortTime, toLocalInput } from '../utils';
 
 const blank = {
   name: '',
@@ -13,6 +15,7 @@ const blank = {
   email: '',
   address: '',
   gst_number: '',
+  state: '',
   project_site: '',
   status: 'New',
   last_interaction: '',
@@ -31,10 +34,12 @@ export default function Customers() {
   const [selected, setSelected] = useState<Customer | null>(null);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
-  const [search, setSearch] = useState('');
+  const [searchParams] = useSearchParams();
+  const [search, setSearch] = useState(searchParams.get('q') || '');
   const [status, setStatus] = useState('');
   const [salesperson, setSalesperson] = useState('');
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [form, setForm] = useState(blank);
   const [loading, setLoading] = useState(true);
@@ -98,6 +103,7 @@ export default function Customers() {
       email: customer.email,
       address: customer.address,
       gst_number: customer.gst_number || '',
+      state: customer.state || '',
       project_site: customer.project_site,
       status: customer.status,
       last_interaction: customer.last_interaction ? toLocalInput(customer.last_interaction) : '',
@@ -139,7 +145,8 @@ export default function Customers() {
             <div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search customers by name, phone, email..." /></div>
             <Select value={status} onChange={e => setStatus(e.target.value)} style={{ width: 130 }}><option value="">All Status</option>{statuses.map(item => <option key={item}>{item}</option>)}</Select>
             <Select value={salesperson} onChange={e => setSalesperson(e.target.value)} style={{ width: 145 }}><option value="">All Salespersons</option>{salespeople.map(item => <option key={item}>{item}</option>)}</Select>
-            <Button onClick={showAdd} style={{ marginLeft: 'auto' }}><Plus size={16} /> Add Customer</Button>
+            <Button tone="secondary" onClick={() => setImportOpen(true)} style={{ marginLeft: 'auto' }}><Upload size={16} /> Import CSV</Button>
+            <Button onClick={showAdd}><Plus size={16} /> Add Customer</Button>
           </div>
 
           {loading ? <Loading /> : (
@@ -172,6 +179,7 @@ export default function Customers() {
                 <div className="info-line"><Mail size={15} />{activeCustomer.email || 'No email'}</div>
                 <div className="info-line"><MapPin size={15} />{activeCustomer.address || 'No address'}</div>
                 <div className="info-line"><ReceiptText size={15} />GST: {activeCustomer.gst_number || 'Not provided'}</div>
+                <div className="info-line"><MapPin size={15} />State: {activeCustomer.state || 'Not set'}</div>
               </div>
 
               <div className="detail-section">
@@ -221,6 +229,7 @@ export default function Customers() {
             <Field label="Phone"><Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></Field>
             <Field label="Email"><Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></Field>
             <Field label="GST Number"><Input value={form.gst_number} onChange={e => setForm({ ...form, gst_number: e.target.value })} /></Field>
+            <Field label="State"><Select value={form.state} onChange={e => setForm({ ...form, state: e.target.value })}><option value="">Select state</option>{INDIAN_STATES.map(s => <option key={s}>{s}</option>)}</Select></Field>
             <Field label="Status"><Select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>{statuses.map(item => <option key={item}>{item}</option>)}</Select></Field>
             <Field label="Project / Site"><Input value={form.project_site} onChange={e => setForm({ ...form, project_site: e.target.value })} /></Field>
             <Field label="Assigned To"><Select value={form.assigned_to} onChange={e => setForm({ ...form, assigned_to: e.target.value })}>{salespeople.map(item => <option key={item}>{item}</option>)}</Select></Field>
@@ -233,6 +242,19 @@ export default function Customers() {
           <div className="form-actions"><Button type="button" tone="secondary" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit">{editing ? 'Update' : 'Save'} Customer</Button></div>
         </form>
       </Modal>
+
+      <ImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import Customers"
+        previewUrl="/customers/import/preview"
+        commitUrl="/customers/import/commit"
+        columns={[{ key: 'name', label: 'Name' }, { key: 'phone', label: 'Phone' }, { key: 'email', label: 'Email' }, { key: 'gst_number', label: 'GSTIN' }, { key: 'project_site', label: 'Project/Site' }, { key: 'opening_balance', label: 'Opening Balance' }]}
+        extraHelp="project_site, assigned_to, opening_balance"
+        acceptTallyXml
+        showAsOfDate
+        onImported={() => load()}
+      />
     </>
   );
 }

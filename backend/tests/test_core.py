@@ -1066,3 +1066,879 @@ def test_tally_export_masters_and_vouchers_are_well_formed():
             for entry in voucher.findall("ALLLEDGERENTRIES.LIST"):
                 total += Decimal(entry.findtext("AMOUNT"))
             assert total == Decimal("0.00"), ET.tostring(voucher, encoding="unicode")
+
+
+def test_customer_csv_import_preview_and_commit():
+    with TestClient(app) as client:
+        existing = client.get("/api/customers").json()[0]
+        csv_bytes = (
+            "name,phone,email,gst_number\n"
+            f"{existing['name']} Duplicate,{existing['phone']},,\n"
+            "Brand New Customer,+91 90000 55555,newcustomer@example.com,\n"
+        ).encode("utf-8")
+
+        preview = client.post("/api/customers/import/preview", files={"file": ("customers.csv", csv_bytes, "text/csv")})
+        assert preview.status_code == 200, preview.text
+        rows = preview.json()
+        assert len(rows) == 2
+        dup_row = next(r for r in rows if r["row"]["name"].endswith("Duplicate"))
+        new_row = next(r for r in rows if r["row"]["name"] == "Brand New Customer")
+        assert dup_row["status"] == "duplicate"
+        assert dup_row["matched_id"] == existing["id"]
+        assert new_row["status"] == "new"
+
+        before_count = len(client.get("/api/customers").json())
+        commit = client.post("/api/customers/import/commit", json={"rows": [new_row["row"]]})
+        assert commit.status_code == 200, commit.text
+        assert commit.json()["created"] == 1
+        after = client.get("/api/customers").json()
+        assert len(after) == before_count + 1
+        assert any(c["name"] == "Brand New Customer" and c["email"] == "newcustomer@example.com" for c in after)
+
+
+def test_vendor_csv_import_preview_and_commit():
+    with TestClient(app) as client:
+        created = client.post("/api/vendors", json={
+            "name": "Import Match Vendor", "phone": "+91 90000 77777", "email": "", "address": "",
+            "gst_number": "27UNIQUEIMPORTV1Z1", "status": "Active", "pending_payment": 0, "notes": "",
+        })
+        assert created.status_code == 201, created.text
+        existing = created.json()
+        csv_bytes = (
+            "name,phone,email,gst_number,address,notes\n"
+            f"Some Other Name,,,{existing['gst_number']},,\n"
+            "Brand New Vendor,+91 90000 66666,newvendor@example.com,,Vendor Street,Imported\n"
+        ).encode("utf-8")
+
+        preview = client.post("/api/vendors/import/preview", files={"file": ("vendors.csv", csv_bytes, "text/csv")})
+        assert preview.status_code == 200, preview.text
+        rows = preview.json()
+        dup_row = next(r for r in rows if r["row"]["name"] == "Some Other Name")
+        new_row = next(r for r in rows if r["row"]["name"] == "Brand New Vendor")
+        assert dup_row["status"] == "duplicate"
+        assert dup_row["matched_id"] == existing["id"]
+        assert new_row["status"] == "new"
+
+        commit = client.post("/api/vendors/import/commit", json={"rows": [new_row["row"]]})
+        assert commit.status_code == 200, commit.text
+        assert commit.json()["created"] == 1
+        vendors = client.get("/api/vendors").json()
+        assert any(v["name"] == "Brand New Vendor" and v["email"] == "newvendor@example.com" for v in vendors)
+
+
+def test_customer_import_rejects_csv_without_name_column():
+    with TestClient(app) as client:
+        csv_bytes = "phone,email\n+911234,x@example.com\n".encode("utf-8")
+        preview = client.post("/api/customers/import/preview", files={"file": ("bad.csv", csv_bytes, "text/csv")})
+        assert preview.status_code == 400
+        assert "name" in preview.json()["detail"].lower()
+
+
+def _trial_balance_totals(client):
+    rows = client.get("/api/trial-balance").json()
+    total_debit = sum(Decimal(str(r["debit"])) for r in rows)
+    total_credit = sum(Decimal(str(r["credit"])) for r in rows)
+    return total_debit, total_credit
+
+
+def test_customer_import_with_opening_balance_posts_journal_and_balances():
+    with TestClient(app) as client:
+        before_debit, before_credit = _trial_balance_totals(client)
+        csv_bytes = "name,phone,opening_balance\nMigrated Customer,+91 90000 12121,25000\n".encode("utf-8")
+        preview = client.post("/api/customers/import/preview", files={"file": ("customers.csv", csv_bytes, "text/csv")})
+        assert preview.status_code == 200, preview.text
+        row = preview.json()[0]
+        assert row["status"] == "new"
+
+        commit = client.post("/api/customers/import/commit", json={"rows": [row["row"]], "as_of": "2026-04-01"})
+        assert commit.status_code == 200, commit.text
+        assert commit.json()["created"] == 1
+
+        customers = client.get("/api/customers").json()
+        migrated = next(c for c in customers if c["name"] == "Migrated Customer")
+        assert Decimal(migrated["pending_payment"]) == Decimal("25000.00")
+
+        all_entries = client.get("/api/journal").json()
+        matching = [e for e in all_entries if e["source_type"] == "OpeningBalance" and e["narration"] == "Opening balance for Migrated Customer"]
+        assert len(matching) == 1
+        _assert_balanced(matching[0])
+
+        after_debit, after_credit = _trial_balance_totals(client)
+        assert after_debit == after_credit
+        assert after_debit - before_debit == Decimal("25000.00")
+
+
+def test_opening_balance_csv_resolves_customer_vendor_account_and_unmatched():
+    with TestClient(app) as client:
+        customers = client.get("/api/customers").json()
+        target_customer = customers[0]
+        vendor = _create_vendor(client, name="Opening Balance Vendor")
+
+        csv_bytes = (
+            "name,debit,credit\n"
+            f"{target_customer['name']},18000,0\n"
+            f"{vendor['name']},0,9000\n"
+            "1010,60000,0\n"
+            "Totally Unknown Ledger,500,0\n"
+        ).encode("utf-8")
+        preview = client.post("/api/opening-balances/preview", files={"file": ("tb.csv", csv_bytes, "text/csv")})
+        assert preview.status_code == 200, preview.text
+        rows = preview.json()
+        by_name = {r["name"]: r for r in rows}
+        assert by_name[target_customer["name"]]["match_type"] == "customer"
+        assert by_name[target_customer["name"]]["match_id"] == target_customer["id"]
+        assert by_name[vendor["name"]]["match_type"] == "vendor"
+        assert by_name["1010"]["match_type"] == "account"
+        assert by_name["Totally Unknown Ledger"]["match_type"] == "unmatched"
+
+        before_debit, before_credit = _trial_balance_totals(client)
+        matched_rows = [r for r in rows if r["match_type"] != "unmatched"]
+        commit = client.post("/api/opening-balances/commit", json={"rows": matched_rows, "as_of": "2026-04-01"})
+        assert commit.status_code == 200, commit.text
+        assert commit.json()["applied"] == 3
+
+        customer_after = client.get(f"/api/customers/{target_customer['id']}/profile").json()["customer"]
+        assert Decimal(customer_after["pending_payment"]) == Decimal(target_customer["pending_payment"]) + Decimal("18000.00")
+        vendor_after = client.get(f"/api/vendors/{vendor['id']}").json()
+        assert Decimal(vendor_after["pending_payment"]) == Decimal(vendor["pending_payment"]) + Decimal("9000.00")
+
+        after_debit, after_credit = _trial_balance_totals(client)
+        assert after_debit == after_credit
+
+
+def test_opening_balance_import_rejects_csv_without_name_column():
+    with TestClient(app) as client:
+        csv_bytes = "debit,credit\n1000,0\n".encode("utf-8")
+        preview = client.post("/api/opening-balances/preview", files={"file": ("bad.csv", csv_bytes, "text/csv")})
+        assert preview.status_code == 400
+
+
+TALLY_LEDGER_MASTERS_XML = """<ENVELOPE>
+<BODY>
+<IMPORTDATA>
+<REQUESTDATA>
+<TALLYMESSAGE>
+<LEDGER NAME="Tally Test Customer">
+<PARENT>Sundry Debtors</PARENT>
+<PARTYGSTIN>29ABCDE1234F1Z5</PARTYGSTIN>
+<LEDGERPHONE>9998887777</LEDGERPHONE>
+<ADDRESS.LIST>
+<ADDRESS>123 Test Street</ADDRESS>
+<ADDRESS>Bangalore</ADDRESS>
+</ADDRESS.LIST>
+<OPENINGBALANCE>-15000</OPENINGBALANCE>
+</LEDGER>
+<LEDGER NAME="Tally Test Vendor">
+<PARENT>Sundry Creditors</PARENT>
+<OPENINGBALANCE>8000</OPENINGBALANCE>
+</LEDGER>
+</TALLYMESSAGE>
+</REQUESTDATA>
+</IMPORTDATA>
+</BODY>
+</ENVELOPE>"""
+
+
+def test_tally_ledger_masters_xml_import_customers_and_vendors():
+    with TestClient(app) as client:
+        xml_bytes = TALLY_LEDGER_MASTERS_XML.encode("utf-8")
+
+        cust_preview = client.post("/api/customers/import/preview", files={"file": ("masters.xml", xml_bytes, "application/xml")})
+        assert cust_preview.status_code == 200, cust_preview.text
+        cust_rows = cust_preview.json()
+        assert len(cust_rows) == 1
+        cust_row = cust_rows[0]["row"]
+        assert cust_row["name"] == "Tally Test Customer"
+        assert cust_row["gst_number"] == "29ABCDE1234F1Z5"
+        assert cust_row["phone"] == "9998887777"
+        assert cust_row["address"] == "123 Test Street, Bangalore"
+        assert cust_row["opening_balance"] == "15000"
+
+        vendor_preview = client.post("/api/vendors/import/preview", files={"file": ("masters.xml", xml_bytes, "application/xml")})
+        assert vendor_preview.status_code == 200, vendor_preview.text
+        vendor_rows = vendor_preview.json()
+        assert len(vendor_rows) == 1
+        assert vendor_rows[0]["row"]["name"] == "Tally Test Vendor"
+        assert vendor_rows[0]["row"]["opening_balance"] == "8000"
+
+        commit = client.post("/api/customers/import/commit", json={"rows": [cust_row], "as_of": "2026-04-01"})
+        assert commit.status_code == 200, commit.text
+        created = client.get("/api/customers").json()
+        imported = next(c for c in created if c["name"] == "Tally Test Customer")
+        assert imported["gst_number"] == "29ABCDE1234F1Z5"
+        assert Decimal(imported["pending_payment"]) == Decimal("15000.00")
+
+
+def _create_customer(client, name, state=""):
+    resp = client.post("/api/customers", json={
+        "name": name, "phone": "", "email": "", "address": "", "gst_number": "",
+        "state": state, "project_site": "", "status": "New", "quote_value": 0,
+        "pending_payment": 0, "assigned_to": "Arun Verma", "notes": "",
+    })
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def _create_invoice_for_customer(client, customer_id, hsn_code="3925.20.00"):
+    payload = {
+        "customer_id": customer_id,
+        "quotation_date": "2026-07-14",
+        "validity_days": 30,
+        "sales_person": "Arun Verma",
+        "site_location": "IGST Test Site",
+        "address": "IGST Test Address",
+        "status": "Sent",
+        "transport": "0",
+        "discount": "0",
+        "notes": "IGST test",
+        "items": [{
+            "category": "Sliding Window",
+            "style": "2 Track",
+            "width_mm": "1200",
+            "height_mm": "1200",
+            "sft": "11.56",
+            "quantity": 1,
+            "total_sft": "11.56",
+            "rate_per_sft": "1000",
+            "amount": "11560",
+            "hsn_code": hsn_code,
+            "location": "Hall",
+        }],
+    }
+    quote = client.post("/api/quotations", json=payload)
+    assert quote.status_code == 201, quote.text
+    invoice = client.post(f"/api/quotations/{quote.json()['id']}/convert")
+    assert invoice.status_code == 200, invoice.text
+    return invoice.json()
+
+
+def test_interstate_invoice_posts_igst_not_cgst_sgst():
+    with TestClient(app) as client:
+        customer = _create_customer(client, "Karnataka Buyer", state="Karnataka")
+        invoice = _create_invoice_for_customer(client, customer["id"])
+        assert Decimal(invoice["igst"]) > 0
+        assert Decimal(invoice["cgst"]) == 0
+        assert Decimal(invoice["sgst"]) == 0
+
+        entries = _journal_entries_for(client, "Invoice", invoice["id"])
+        assert len(entries) == 1
+        _assert_balanced(entries[0])
+        codes = {line["account"]["code"] for line in entries[0]["lines"]}
+        assert "2120" in codes
+        assert "2100" not in codes and "2110" not in codes
+
+
+def test_intrastate_invoice_still_posts_cgst_sgst():
+    with TestClient(app) as client:
+        customer = _create_customer(client, "AP Buyer", state="Andhra Pradesh")
+        invoice = _create_invoice_for_customer(client, customer["id"])
+        assert Decimal(invoice["cgst"]) > 0
+        assert Decimal(invoice["sgst"]) > 0
+        assert Decimal(invoice["igst"]) == 0
+
+
+def test_invoice_with_blank_state_defaults_to_intrastate():
+    with TestClient(app) as client:
+        customer = _create_customer(client, "No State Buyer", state="")
+        invoice = _create_invoice_for_customer(client, customer["id"])
+        assert Decimal(invoice["cgst"]) > 0
+        assert Decimal(invoice["igst"]) == 0
+
+
+def test_interstate_purchase_bill_posts_input_igst():
+    with TestClient(app) as client:
+        vendor_resp = client.post("/api/vendors", json={
+            "name": "Maharashtra Vendor", "phone": "", "email": "", "address": "", "gst_number": "",
+            "state": "Maharashtra", "status": "Active", "pending_payment": 0, "notes": "",
+        })
+        assert vendor_resp.status_code == 201, vendor_resp.text
+        vendor = vendor_resp.json()
+        bill = _create_purchase_bill(client, vendor["id"])
+        assert Decimal(bill["igst"]) > 0
+        assert Decimal(bill["cgst"]) == 0
+        assert Decimal(bill["sgst"]) == 0
+
+        entries = _journal_entries_for(client, "PurchaseBill", bill["id"])
+        assert len(entries) == 1
+        _assert_balanced(entries[0])
+        codes = {line["account"]["code"] for line in entries[0]["lines"]}
+        assert "1220" in codes
+
+
+def test_interstate_credit_note_uses_igst():
+    with TestClient(app) as client:
+        customer = _create_customer(client, "Telangana Buyer", state="Telangana")
+        invoice = _create_invoice_for_customer(client, customer["id"])
+        cn = client.post(f"/api/invoices/{invoice['id']}/credit-notes", json={
+            "note_date": "2026-07-15", "reason": "Return",
+            "items": [{"description": "x", "quantity": "1", "rate": "1000", "gst_percent": "18"}],
+        })
+        assert cn.status_code == 201, cn.text
+        entries = _journal_entries_for(client, "CreditNote", cn.json()["id"])
+        assert len(entries) == 1
+        _assert_balanced(entries[0])
+        codes = {line["account"]["code"] for line in entries[0]["lines"]}
+        assert "2120" in codes
+        assert "2100" not in codes and "2110" not in codes
+
+
+def test_gstr3b_includes_igst():
+    with TestClient(app) as client:
+        customer = _create_customer(client, "Gujarat Buyer", state="Gujarat")
+        _create_invoice_for_customer(client, customer["id"])
+        gstr3b = client.get("/api/gst/gstr3b", params=PERIOD).json()
+        assert gstr3b["outward_taxable_supplies"]["igst"] > 0
+
+
+def test_gstr1_b2b_reports_igst_for_interstate_invoice():
+    with TestClient(app) as client:
+        customer = _create_customer(client, "Punjab GST Buyer", state="Punjab")
+        client.put(f"/api/customers/{customer['id']}", json={**customer, "gst_number": "03PUNJABGST1Z5"})
+        invoice = _create_invoice_for_customer(client, customer["id"])
+        gstr1 = client.get("/api/gst/gstr1", params=PERIOD).json()
+        row = next(r for r in gstr1["b2b"] if r["invoice_number"] == invoice["number"])
+        assert row["igst"] > 0
+        assert row["cgst"] == 0
+        assert row["sgst"] == 0
+
+
+def test_trial_balance_balances_with_mixed_igst_and_intrastate():
+    with TestClient(app) as client:
+        interstate_customer = _create_customer(client, "Rajasthan Buyer", state="Rajasthan")
+        intrastate_customer = _create_customer(client, "AP Buyer 2", state="Andhra Pradesh")
+        _create_invoice_for_customer(client, interstate_customer["id"])
+        _create_invoice_for_customer(client, intrastate_customer["id"])
+        total_debit, total_credit = _trial_balance_totals(client)
+        assert total_debit == total_credit
+
+
+def _account_id(client, code):
+    accounts = client.get("/api/accounts").json()
+    return next(a["id"] for a in accounts if a["code"] == code)
+
+
+def test_manual_journal_entry_create_and_balance():
+    with TestClient(app) as client:
+        cash_id = _account_id(client, "1000")
+        rent_id = _account_id(client, "5100")
+        before_debit, before_credit = _trial_balance_totals(client)
+
+        resp = client.post("/api/journal/manual", json={
+            "entry_date": "2026-07-20",
+            "narration": "Office rent paid in cash",
+            "lines": [
+                {"account_id": rent_id, "debit": "5000", "credit": "0"},
+                {"account_id": cash_id, "debit": "0", "credit": "5000"},
+            ],
+        })
+        assert resp.status_code == 201, resp.text
+        entry = resp.json()
+        assert entry["source_type"] == "Manual"
+        assert entry["source_id"] is None
+        assert entry["narration"] == "Office rent paid in cash"
+        _assert_balanced(entry)
+
+        after_debit, after_credit = _trial_balance_totals(client)
+        assert after_debit - before_debit == Decimal("5000")
+        assert after_credit - before_credit == Decimal("5000")
+
+
+def test_manual_journal_entry_rejects_unbalanced_lines():
+    with TestClient(app) as client:
+        cash_id = _account_id(client, "1000")
+        rent_id = _account_id(client, "5100")
+        resp = client.post("/api/journal/manual", json={
+            "entry_date": "2026-07-20",
+            "narration": "Unbalanced entry",
+            "lines": [
+                {"account_id": rent_id, "debit": "5000", "credit": "0"},
+                {"account_id": cash_id, "debit": "0", "credit": "4000"},
+            ],
+        })
+        assert resp.status_code == 400
+        assert "not balanced" in resp.json()["detail"].lower()
+
+
+def test_manual_journal_entry_requires_narration():
+    with TestClient(app) as client:
+        cash_id = _account_id(client, "1000")
+        rent_id = _account_id(client, "5100")
+        resp = client.post("/api/journal/manual", json={
+            "entry_date": "2026-07-20",
+            "narration": "   ",
+            "lines": [
+                {"account_id": rent_id, "debit": "1000", "credit": "0"},
+                {"account_id": cash_id, "debit": "0", "credit": "1000"},
+            ],
+        })
+        assert resp.status_code == 400
+        assert "narration" in resp.json()["detail"].lower()
+
+
+def test_manual_journal_entry_requires_two_nonzero_lines():
+    with TestClient(app) as client:
+        cash_id = _account_id(client, "1000")
+        resp = client.post("/api/journal/manual", json={
+            "entry_date": "2026-07-20",
+            "narration": "Only one line",
+            "lines": [
+                {"account_id": cash_id, "debit": "1000", "credit": "0"},
+            ],
+        })
+        assert resp.status_code == 400
+        assert "two lines" in resp.json()["detail"].lower()
+
+
+def test_manual_journal_entry_reversal():
+    with TestClient(app) as client:
+        cash_id = _account_id(client, "1000")
+        rent_id = _account_id(client, "5100")
+        created = client.post("/api/journal/manual", json={
+            "entry_date": "2026-07-20",
+            "narration": "Reverse me",
+            "lines": [
+                {"account_id": rent_id, "debit": "2000", "credit": "0"},
+                {"account_id": cash_id, "debit": "0", "credit": "2000"},
+            ],
+        }).json()
+
+        before_debit, before_credit = _trial_balance_totals(client)
+        reversal = client.post(f"/api/journal/{created['id']}/reverse")
+        assert reversal.status_code == 200, reversal.text
+        reversal_entry = reversal.json()
+        assert reversal_entry["source_type"] == "ManualReversal"
+        assert reversal_entry["source_id"] == created["id"]
+        _assert_balanced(reversal_entry)
+        rent_line = next(l for l in reversal_entry["lines"] if l["account"]["code"] == "5100")
+        assert Decimal(rent_line["credit"]) == Decimal("2000")
+
+        after_debit, after_credit = _trial_balance_totals(client)
+        assert after_debit - before_debit == Decimal("2000")
+        assert after_credit - before_credit == Decimal("2000")
+
+        again = client.post(f"/api/journal/{created['id']}/reverse")
+        assert again.status_code == 400
+        assert "already been reversed" in again.json()["detail"].lower()
+
+
+def test_manual_journal_entry_reversal_blocked_for_system_entries():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client)
+        invoice_entries = _journal_entries_for(client, "Invoice", invoice["id"])
+        resp = client.post(f"/api/journal/{invoice_entries[0]['id']}/reverse")
+        assert resp.status_code == 400
+        assert "manually created" in resp.json()["detail"].lower()
+
+
+def _create_fixed_asset(client, **overrides):
+    payload = {
+        "name": "Edge Banding Machine",
+        "category": "Machinery",
+        "purchase_date": "2025-01-01",
+        "purchase_cost": "120000",
+        "salvage_value": "12000",
+        "useful_life_years": "6",
+        "depreciation_method": "Straight Line",
+        "payment_mode": "Bank",
+        "location": "Factory Floor 1",
+        "notes": "",
+    }
+    payload.update(overrides)
+    resp = client.post("/api/fixed-assets", json=payload)
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def test_fixed_asset_creation_posts_balanced_acquisition_journal():
+    with TestClient(app) as client:
+        asset = _create_fixed_asset(client)
+        assert asset["code"]
+        assert asset["status"] == "Active"
+        assert Decimal(asset["accumulated_depreciation"]) == Decimal("0")
+
+        entries = _journal_entries_for(client, "FixedAsset", asset["id"])
+        assert len(entries) == 1
+        _assert_balanced(entries[0])
+        fa_line = next(l for l in entries[0]["lines"] if l["account"]["code"] == "1500")
+        bank_line = next(l for l in entries[0]["lines"] if l["account"]["code"] == "1010")
+        assert Decimal(fa_line["debit"]) == Decimal("120000.00")
+        assert Decimal(bank_line["credit"]) == Decimal("120000.00")
+
+
+def test_fixed_asset_rejects_salvage_value_greater_than_cost():
+    with TestClient(app) as client:
+        resp = client.post("/api/fixed-assets", json={
+            "name": "Bad Asset", "category": "Other", "purchase_date": "2025-01-01",
+            "purchase_cost": "10000", "salvage_value": "15000", "useful_life_years": "5",
+            "depreciation_method": "Straight Line", "payment_mode": "Cash",
+        })
+        assert resp.status_code == 400
+        assert "salvage" in resp.json()["detail"].lower()
+
+
+def test_fixed_asset_purchase_via_vendor_credits_payable():
+    with TestClient(app) as client:
+        vendor = _create_vendor(client, "Machine Traders")
+        asset = _create_fixed_asset(client, vendor_id=vendor["id"])
+        entries = _journal_entries_for(client, "FixedAsset", asset["id"])
+        payable_line = next(l for l in entries[0]["lines"] if l["account"]["code"] == "2000")
+        assert Decimal(payable_line["credit"]) == Decimal("120000.00")
+
+        updated_vendor = client.get(f"/api/vendors/{vendor['id']}").json()
+        assert Decimal(updated_vendor["pending_payment"]) == Decimal("120000.00")
+
+
+def test_straight_line_depreciation_posts_balanced_journal():
+    with TestClient(app) as client:
+        asset = _create_fixed_asset(client, purchase_cost="120000", salvage_value="12000", useful_life_years="6", depreciation_method="Straight Line")
+        resp = client.post(f"/api/fixed-assets/{asset['id']}/depreciate", json={"as_of_date": "2026-01-01"})
+        assert resp.status_code == 200, resp.text
+        updated = resp.json()
+        assert Decimal(updated["accumulated_depreciation"]) == Decimal("18000.00")
+
+        entries = _journal_entries_for(client, "Depreciation", updated["depreciation_entries"][0]["id"])
+        assert len(entries) == 1
+        _assert_balanced(entries[0])
+        expense_line = next(l for l in entries[0]["lines"] if l["account"]["code"] == "5200")
+        accum_line = next(l for l in entries[0]["lines"] if l["account"]["code"] == "1590")
+        assert Decimal(expense_line["debit"]) == Decimal("18000.00")
+        assert Decimal(accum_line["credit"]) == Decimal("18000.00")
+
+
+def test_written_down_value_depreciation_uses_book_value():
+    with TestClient(app) as client:
+        asset = _create_fixed_asset(
+            client, name="Delivery Van", category="Vehicle", purchase_cost="100000", salvage_value="1000",
+            useful_life_years="5", depreciation_method="Written Down Value", depreciation_rate="20",
+        )
+        resp = client.post(f"/api/fixed-assets/{asset['id']}/depreciate", json={"as_of_date": "2026-01-01"})
+        assert resp.status_code == 200, resp.text
+        first = resp.json()
+        assert Decimal(first["accumulated_depreciation"]) == Decimal("20000.00")
+
+        resp2 = client.post(f"/api/fixed-assets/{asset['id']}/depreciate", json={"as_of_date": "2027-01-01"})
+        assert resp2.status_code == 200, resp2.text
+        second = resp2.json()
+        assert Decimal(second["accumulated_depreciation"]) == Decimal("36000.00")
+
+
+def test_depreciation_capped_at_salvage_value_and_blocks_when_fully_depreciated():
+    with TestClient(app) as client:
+        asset = _create_fixed_asset(client, name="Cheap Drill", category="Tools", purchase_cost="10000", salvage_value="9500", useful_life_years="1", depreciation_method="Straight Line")
+        resp = client.post(f"/api/fixed-assets/{asset['id']}/depreciate", json={"as_of_date": "2026-01-01"})
+        assert resp.status_code == 200, resp.text
+        updated = resp.json()
+        assert Decimal(updated["accumulated_depreciation"]) == Decimal("500.00")
+
+        again = client.post(f"/api/fixed-assets/{asset['id']}/depreciate", json={"as_of_date": "2026-06-01"})
+        assert again.status_code == 400
+        assert "fully depreciated" in again.json()["detail"].lower()
+
+
+def test_dispose_fixed_asset_with_gain_and_loss():
+    with TestClient(app) as client:
+        gain_asset = _create_fixed_asset(client, name="Asset For Gain")
+        client.post(f"/api/fixed-assets/{gain_asset['id']}/depreciate", json={"as_of_date": "2026-01-01"})
+        disposed = client.post(f"/api/fixed-assets/{gain_asset['id']}/dispose", json={"disposal_date": "2026-02-01", "disposal_value": "110000"})
+        assert disposed.status_code == 200, disposed.text
+        body = disposed.json()
+        assert body["status"] == "Disposed"
+        entries = _journal_entries_for(client, "FixedAssetDisposal", gain_asset["id"])
+        _assert_balanced(entries[0])
+        gain_line = next(l for l in entries[0]["lines"] if l["account"]["code"] == "4200")
+        assert Decimal(gain_line["credit"]) > 0
+
+        loss_asset = _create_fixed_asset(client, name="Asset For Loss")
+        client.post(f"/api/fixed-assets/{loss_asset['id']}/depreciate", json={"as_of_date": "2026-01-01"})
+        disposed2 = client.post(f"/api/fixed-assets/{loss_asset['id']}/dispose", json={"disposal_date": "2026-02-01", "disposal_value": "50000"})
+        assert disposed2.status_code == 200, disposed2.text
+        entries2 = _journal_entries_for(client, "FixedAssetDisposal", loss_asset["id"])
+        _assert_balanced(entries2[0])
+        loss_line = next(l for l in entries2[0]["lines"] if l["account"]["code"] == "4200")
+        assert Decimal(loss_line["debit"]) > 0
+
+        already = client.post(f"/api/fixed-assets/{gain_asset['id']}/dispose", json={"disposal_date": "2026-03-01", "disposal_value": "0"})
+        assert already.status_code == 400
+
+
+def test_trial_balance_stays_balanced_with_fixed_assets_activity():
+    with TestClient(app) as client:
+        asset = _create_fixed_asset(client, name="Balance Check Asset")
+        client.post(f"/api/fixed-assets/{asset['id']}/depreciate", json={"as_of_date": "2026-01-01"})
+        client.post(f"/api/fixed-assets/{asset['id']}/dispose", json={"disposal_date": "2026-02-01", "disposal_value": "115000"})
+        total_debit, total_credit = _trial_balance_totals(client)
+        assert total_debit == total_credit
+
+
+def _create_financial_year(client, start_date, end_date, label=""):
+    resp = client.post("/api/financial-years", json={"start_date": start_date, "end_date": end_date, "label": label})
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def _create_expense_dated(client, expense_date, amount="1000"):
+    return client.post("/api/expenses", json={
+        "expense_date": expense_date, "category": "Rent", "description": "FY lock test", "amount": amount,
+        "gst_percent": "0", "vendor_id": None, "mode": "Cash", "reference_number": "", "notes": "",
+    })
+
+
+def test_create_financial_year_generates_label_and_rejects_overlap():
+    with TestClient(app) as client:
+        fy = _create_financial_year(client, "2000-04-01", "2001-03-31")
+        assert fy["label"] == "FY 2000-01"
+        assert fy["status"] == "Open"
+
+        overlap = client.post("/api/financial-years", json={"start_date": "2000-06-01", "end_date": "2000-12-31", "label": ""})
+        assert overlap.status_code == 400
+        assert "overlaps" in overlap.json()["detail"].lower()
+
+        bad_range = client.post("/api/financial-years", json={"start_date": "2010-04-01", "end_date": "2009-03-31", "label": ""})
+        assert bad_range.status_code == 400
+
+        closed = client.post(f"/api/financial-years/{fy['id']}/close")
+        assert closed.status_code == 200, closed.text
+
+
+def test_close_financial_year_computes_snapshot_and_locks_period():
+    with TestClient(app) as client:
+        expense = _create_expense_dated(client, "2001-06-15", "1000")
+        assert expense.status_code == 201, expense.text
+
+        fy = _create_financial_year(client, "2001-04-01", "2002-03-31")
+        resp = client.post(f"/api/financial-years/{fy['id']}/close")
+        assert resp.status_code == 200, resp.text
+        closed = resp.json()
+        assert closed["status"] == "Closed"
+        assert closed["closed_at"]
+        assert Decimal(closed["total_expense"]) == Decimal("1000.00")
+        assert Decimal(closed["net_profit"]) == Decimal("-1000.00")
+
+        blocked = _create_expense_dated(client, "2001-09-01", "500")
+        assert blocked.status_code == 400
+        assert "closed" in blocked.json()["detail"].lower()
+
+        blocked_manual = client.post("/api/journal/manual", json={
+            "entry_date": "2001-12-31", "narration": "backdated into closed year",
+            "lines": [{"account_id": 1, "debit": "100", "credit": "0"}, {"account_id": 2, "debit": "0", "credit": "100"}],
+        })
+        assert blocked_manual.status_code == 400
+        assert "closed" in blocked_manual.json()["detail"].lower()
+
+        blocked_asset = client.post("/api/fixed-assets", json={
+            "name": "Backdated Asset", "category": "Other", "purchase_date": "2001-08-01",
+            "purchase_cost": "5000", "salvage_value": "0", "useful_life_years": "5",
+            "depreciation_method": "Straight Line", "payment_mode": "Cash",
+        })
+        assert blocked_asset.status_code == 400
+        assert "closed" in blocked_asset.json()["detail"].lower()
+
+        allowed = _create_expense_dated(client, "2002-06-01", "500")
+        assert allowed.status_code == 201, allowed.text
+
+
+def test_close_financial_year_rejects_out_of_order_and_before_end_date():
+    with TestClient(app) as client:
+        fy_c = _create_financial_year(client, "2002-04-01", "2003-03-31")
+        fy_d = _create_financial_year(client, "2003-04-01", "2004-03-31")
+
+        out_of_order = client.post(f"/api/financial-years/{fy_d['id']}/close")
+        assert out_of_order.status_code == 400
+        assert fy_c["label"].lower() in out_of_order.json()["detail"].lower()
+
+        close_c = client.post(f"/api/financial-years/{fy_c['id']}/close")
+        assert close_c.status_code == 200, close_c.text
+        close_d = client.post(f"/api/financial-years/{fy_d['id']}/close")
+        assert close_d.status_code == 200, close_d.text
+
+        future_fy = _create_financial_year(client, "2030-04-01", "2031-03-31")
+        too_early = client.post(f"/api/financial-years/{future_fy['id']}/close")
+        assert too_early.status_code == 400
+        assert "has not ended" in too_early.json()["detail"].lower()
+
+
+def test_reopen_financial_year_rejects_out_of_order_and_restores_posting():
+    with TestClient(app) as client:
+        fy_f = _create_financial_year(client, "2004-04-01", "2005-03-31")
+        fy_g = _create_financial_year(client, "2005-04-01", "2006-03-31")
+        assert client.post(f"/api/financial-years/{fy_f['id']}/close").status_code == 200
+        assert client.post(f"/api/financial-years/{fy_g['id']}/close").status_code == 200
+
+        blocked = _create_expense_dated(client, "2004-07-01", "200")
+        assert blocked.status_code == 400
+
+        out_of_order = client.post(f"/api/financial-years/{fy_f['id']}/reopen")
+        assert out_of_order.status_code == 400
+        assert fy_g["label"].lower() in out_of_order.json()["detail"].lower()
+
+        reopened_g = client.post(f"/api/financial-years/{fy_g['id']}/reopen")
+        assert reopened_g.status_code == 200, reopened_g.text
+        assert reopened_g.json()["status"] == "Open"
+
+        allowed = _create_expense_dated(client, "2005-07-01", "200")
+        assert allowed.status_code == 201, allowed.text
+
+        still_blocked = _create_expense_dated(client, "2004-07-01", "200")
+        assert still_blocked.status_code == 400
+
+
+def _create_stock_item(client, name="VEKA 60mm Profile - White", opening_quantity="0", reorder_level="0"):
+    resp = client.post("/api/stock-items", json={
+        "name": name, "category": "Profile", "unit": "Mtr", "hsn_code": "3925.20.00",
+        "reorder_level": reorder_level, "opening_quantity": opening_quantity, "notes": "", "status": "Active",
+    })
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def test_create_stock_item_with_opening_quantity_records_movement():
+    with TestClient(app) as client:
+        item = _create_stock_item(client, "Opening Stock Profile", opening_quantity="100")
+        assert item["code"].startswith("STK-")
+        assert Decimal(item["quantity_on_hand"]) == Decimal("100.00")
+        assert len(item["movements"]) == 1
+        assert item["movements"][0]["movement_type"] == "In"
+        assert item["movements"][0]["reason"] == "Opening Stock"
+        assert Decimal(item["movements"][0]["balance_after"]) == Decimal("100.00")
+
+
+def test_stock_in_and_out_movements_update_balance():
+    with TestClient(app) as client:
+        item = _create_stock_item(client, "Multipoint Lock Set")
+        stock_in = client.post(f"/api/stock-items/{item['id']}/movements", json={
+            "movement_date": "2026-07-01", "movement_type": "In", "quantity": "50", "reason": "Manual", "reference": "", "notes": "",
+        })
+        assert stock_in.status_code == 201, stock_in.text
+        assert Decimal(stock_in.json()["quantity_on_hand"]) == Decimal("50.00")
+
+        stock_out = client.post(f"/api/stock-items/{item['id']}/movements", json={
+            "movement_date": "2026-07-05", "movement_type": "Out", "quantity": "20", "reason": "Issued for Project", "reference": "Sharma Residency", "notes": "",
+        })
+        assert stock_out.status_code == 201, stock_out.text
+        updated = stock_out.json()
+        assert Decimal(updated["quantity_on_hand"]) == Decimal("30.00")
+        assert len(updated["movements"]) == 2
+        assert Decimal(updated["movements"][1]["balance_after"]) == Decimal("30.00")
+
+
+def test_stock_out_rejects_when_insufficient_balance():
+    with TestClient(app) as client:
+        item = _create_stock_item(client, "5mm Toughened Glass", opening_quantity="10")
+        over = client.post(f"/api/stock-items/{item['id']}/movements", json={
+            "movement_date": "2026-07-01", "movement_type": "Out", "quantity": "15", "reason": "Manual", "reference": "", "notes": "",
+        })
+        assert over.status_code == 400
+        assert "insufficient" in over.json()["detail"].lower()
+
+
+def test_purchase_bill_with_stock_item_posts_automatic_stock_in():
+    with TestClient(app) as client:
+        vendor = _create_vendor(client, "Stock Linked Vendor")
+        item = _create_stock_item(client, "SS Roller Set")
+
+        bill_resp = client.post(f"/api/vendors/{vendor['id']}/purchase-bills", json={
+            "vendor_bill_number": "SF-STK-1", "bill_date": "2026-07-10", "due_date": "2026-08-09", "notes": "",
+            "items": [{
+                "description": "SS Roller Set", "category": "Hardware", "hsn_code": "8302.42",
+                "unit": "Nos", "quantity": "25", "rate": "80", "gst_percent": "18", "amount": "2000",
+                "stock_item_id": item["id"],
+            }],
+        })
+        assert bill_resp.status_code == 201, bill_resp.text
+        bill = bill_resp.json()
+
+        updated_item = client.get(f"/api/stock-items/{item['id']}").json()
+        assert Decimal(updated_item["quantity_on_hand"]) == Decimal("25.00")
+        movement = updated_item["movements"][-1]
+        assert movement["source_type"] == "PurchaseBill"
+        assert movement["source_id"] == bill["id"]
+        assert movement["reference"] == bill["number"]
+
+
+def test_low_stock_filter_returns_only_items_at_or_below_reorder_level():
+    with TestClient(app) as client:
+        low = _create_stock_item(client, "Low Stock Hinges", opening_quantity="5", reorder_level="10")
+        healthy = _create_stock_item(client, "Healthy Stock Hinges", opening_quantity="50", reorder_level="10")
+        untracked = _create_stock_item(client, "Untracked Item", opening_quantity="0", reorder_level="0")
+
+        low_stock = client.get("/api/stock-items", params={"low_stock": "true"}).json()
+        low_stock_ids = {i["id"] for i in low_stock}
+        assert low["id"] in low_stock_ids
+        assert healthy["id"] not in low_stock_ids
+        assert untracked["id"] not in low_stock_ids
+
+
+def test_cash_flow_statement_classifies_operating_and_investing_activities():
+    with TestClient(app) as client:
+        customer_id = client.get("/api/customers").json()[0]["id"]
+        invoice = _create_invoice_for_customer(client, customer_id)
+        payment = client.post(f"/api/invoices/{invoice['id']}/payments", json={
+            "payment_date": "2010-03-10", "mode": "UPI", "reference_number": "CF1", "amount": "5000", "received_by": "Admin", "notes": "",
+        })
+        assert payment.status_code == 201, payment.text
+
+        expense = client.post("/api/expenses", json={
+            "expense_date": "2010-04-01", "category": "Rent", "description": "", "amount": "2000", "gst_percent": "0",
+            "vendor_id": None, "mode": "Bank", "reference_number": "", "notes": "",
+        })
+        assert expense.status_code == 201, expense.text
+
+        asset = client.post("/api/fixed-assets", json={
+            "name": "CF Test Asset", "category": "Other", "purchase_date": "2010-05-01",
+            "purchase_cost": "3000", "salvage_value": "0", "useful_life_years": "3",
+            "depreciation_method": "Straight Line", "payment_mode": "Bank",
+        })
+        assert asset.status_code == 201, asset.text
+
+        report = client.get("/api/cash-flow", params={"from_date": "2010-01-01", "to_date": "2010-12-31"}).json()
+        assert report["operating_activities"]["total"] == 3000.0
+        assert report["investing_activities"]["total"] == -3000.0
+        assert report["financing_activities"]["total"] == 0.0
+        assert report["net_change_in_cash"] == 0.0
+        assert report["closing_cash_balance"] == report["opening_cash_balance"]
+
+        operating_labels = {row["label"] for row in report["operating_activities"]["rows"]}
+        assert "Cash received from customers" in operating_labels
+        assert "Cash paid for expenses" in operating_labels
+        investing_labels = {row["label"] for row in report["investing_activities"]["rows"]}
+        assert "Purchase of fixed assets" in investing_labels
+
+
+def test_ap_aging_buckets_vendor_bill_by_days_overdue():
+    with TestClient(app) as client:
+        vendor = _create_vendor(client, "Aging Test Vendor")
+        bill_resp = client.post(f"/api/vendors/{vendor['id']}/purchase-bills", json={
+            "vendor_bill_number": "AGE-1", "bill_date": "2025-12-01", "due_date": "2026-01-01", "notes": "",
+            "items": [{
+                "description": "Hardware batch", "category": "Hardware", "hsn_code": "", "unit": "Nos",
+                "quantity": "1", "rate": "10000", "gst_percent": "18", "amount": "10000",
+            }],
+        })
+        assert bill_resp.status_code == 201, bill_resp.text
+
+        overdue = client.get("/api/ap-aging", params={"as_of": "2026-02-15"}).json()
+        row = next(r for r in overdue["rows"] if r["vendor_id"] == vendor["id"])
+        assert row["d31_60"] > 0
+        assert row["current"] == 0
+        assert row["d1_30"] == 0
+        assert row["d61_90"] == 0
+        assert row["d90_plus"] == 0
+        assert row["total"] == row["d31_60"]
+
+        not_yet_due = client.get("/api/ap-aging", params={"as_of": "2025-12-15"}).json()
+        row2 = next(r for r in not_yet_due["rows"] if r["vendor_id"] == vendor["id"])
+        assert row2["current"] > 0
+        assert row2["d1_30"] == 0
+
+
+def test_ap_aging_excludes_paid_bills():
+    with TestClient(app) as client:
+        vendor = _create_vendor(client, "Paid Off Vendor")
+        bill = _create_purchase_bill(client, vendor["id"])
+        pay = client.post(f"/api/purchase-bills/{bill['id']}/payments", json={
+            "payment_date": "2026-07-20", "mode": "NEFT", "reference_number": "", "amount": bill["grand_total"], "paid_by": "Admin", "notes": "",
+        })
+        assert pay.status_code == 201, pay.text
+
+        aging = client.get("/api/ap-aging", params={"as_of": "2026-09-01"}).json()
+        assert not any(r["vendor_id"] == vendor["id"] for r in aging["rows"])

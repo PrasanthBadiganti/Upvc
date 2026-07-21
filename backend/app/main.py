@@ -18,10 +18,12 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from . import models, schemas
 from .database import Base, DEFAULT_DB_PATH, SessionLocal, engine, get_db
-from .gst_reports import balance_sheet_report, gstr1_report, gstr3b_report, hsn_summary_report, profit_and_loss_report, purchase_register, sales_register
+from .gst_reports import ap_aging_report, balance_sheet_report, cash_flow_statement, gstr1_report, gstr3b_report, hsn_summary_report, profit_and_loss_report, purchase_register, sales_register
+from .opening_balances import commit_opening_balances, preview_opening_balances
+from .party_import import commit_customer_import, commit_vendor_import, preview_customer_import, preview_vendor_import
 from .pdf import build_credit_note_pdf, build_debit_note_pdf, build_invoice_pdf, build_payment_receipt_pdf, build_purchase_bill_pdf, build_quotation_pdf
 from .seed import seed_database
-from .services import cancel_credit_note, cancel_debit_note, cancel_invoice, cancel_purchase_bill, convert_quotation_to_invoice, create_expense, create_purchase_bill, create_quotation, delete_expense, duplicate_quotation, get_account_ledger, get_credit_note, get_debit_note, get_expense, get_invoice, get_journal_entry, get_payment, get_purchase_bill, get_quotation, get_trial_balance, issue_credit_note, issue_debit_note, list_chart_of_accounts, list_journal_entries, money, next_code, record_payment, record_vendor_payment, reopen_invoice, reopen_purchase_bill, update_expense, update_quotation
+from .services import cancel_credit_note, cancel_debit_note, cancel_invoice, cancel_purchase_bill, close_financial_year, convert_quotation_to_invoice, create_expense, create_financial_year, create_fixed_asset, create_manual_journal_entry, create_purchase_bill, create_quotation, create_stock_item, delete_expense, dispose_fixed_asset, duplicate_quotation, get_account_ledger, get_credit_note, get_debit_note, get_expense, get_financial_year, get_fixed_asset, get_invoice, get_journal_entry, get_payment, get_purchase_bill, get_quotation, get_stock_item, get_trial_balance, issue_credit_note, issue_debit_note, list_chart_of_accounts, list_financial_years, list_fixed_assets, list_journal_entries, list_stock_items, money, next_code, record_depreciation, record_payment, record_stock_movement, record_vendor_payment, reopen_financial_year, reopen_invoice, reopen_purchase_bill, reverse_manual_journal_entry, update_expense, update_quotation, update_stock_item
 from .tally_export import build_tally_masters_xml, build_tally_vouchers_xml
 
 app = FastAPI(title="UPVC Pro API", version="1.0.0")
@@ -49,6 +51,7 @@ def ensure_schema() -> None:
         "customers": {
             "gst_number": "VARCHAR(40) DEFAULT ''",
             "notes": "TEXT DEFAULT ''",
+            "state": "VARCHAR(60) DEFAULT ''",
         },
         "catalog_items": {
             "profile_brand": "VARCHAR(120) DEFAULT ''",
@@ -70,8 +73,21 @@ def ensure_schema() -> None:
         "invoice_items": {
             "hsn_code": "VARCHAR(20) DEFAULT ''",
         },
+        "invoices": {
+            "igst": "NUMERIC(14, 2) DEFAULT 0",
+        },
+        "vendors": {
+            "state": "VARCHAR(60) DEFAULT ''",
+        },
+        "purchase_bills": {
+            "igst": "NUMERIC(14, 2) DEFAULT 0",
+        },
+        "purchase_bill_items": {
+            "stock_item_id": "INTEGER",
+        },
         "business_settings": {
             "logo_path": "VARCHAR(260) DEFAULT ''",
+            "state": "VARCHAR(60) DEFAULT 'Andhra Pradesh'",
         },
     }
     with engine.begin() as connection:
@@ -184,13 +200,19 @@ def dashboard(db: Session = Depends(get_db)) -> schemas.DashboardResponse:
 
     pending = sum((Decimal(i.pending_balance or 0) for i in invoices), Decimal("0"))
     received = sum((Decimal(i.paid_amount or 0) for i in invoices), Decimal("0"))
+    today_date = date.today()
+    prev_month_end = today_date.replace(day=1) - timedelta(days=1)
     metrics = {
         "total_leads": len(customers),
         "live_customers": sum(1 for c in customers if c.status in {"Live", "Completed"}),
         "pending_customers": sum(1 for c in customers if c.status in {"New", "Negotiation", "Quotation Sent"}),
-        "quotations_this_month": sum(1 for q in quotations if q.quotation_date.year == date.today().year and q.quotation_date.month == date.today().month),
+        "quotations_this_month": sum(1 for q in quotations if q.quotation_date.year == today_date.year and q.quotation_date.month == today_date.month),
         "pending_payments": float(pending),
         "revenue_received": float(received),
+        "new_leads_this_month": sum(1 for c in customers if c.created_at.year == today_date.year and c.created_at.month == today_date.month),
+        "quotations_last_month": sum(1 for q in quotations if q.quotation_date.year == prev_month_end.year and q.quotation_date.month == prev_month_end.month),
+        "pending_invoice_count": sum(1 for i in invoices if Decimal(i.pending_balance or 0) > 0),
+        "overdue_invoice_count": sum(1 for i in invoices if Decimal(i.pending_balance or 0) > 0 and i.due_date < today_date),
     }
     month_keys = []
     current = date.today().replace(day=1)
@@ -316,6 +338,21 @@ def delete_customer(customer_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Customer not found")
     db.delete(customer)
     db.commit()
+
+
+@app.post("/api/customers/import/preview")
+async def customers_import_preview(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    content = await file.read()
+    try:
+        return preview_customer_import(db, content)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/customers/import/commit")
+def customers_import_commit(payload: schemas.CustomerImportCommit, db: Session = Depends(get_db)):
+    created = commit_customer_import(db, [row.model_dump() for row in payload.rows], payload.as_of)
+    return {"created": created}
 
 
 @app.get("/api/catalog", response_model=list[schemas.CatalogItemRead])
@@ -744,6 +781,38 @@ def update_vendor(vendor_id: int, payload: schemas.VendorCreate, db: Session = D
     return vendor
 
 
+@app.post("/api/vendors/import/preview")
+async def vendors_import_preview(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    content = await file.read()
+    try:
+        return preview_vendor_import(db, content)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/vendors/import/commit")
+def vendors_import_commit(payload: schemas.VendorImportCommit, db: Session = Depends(get_db)):
+    created = commit_vendor_import(db, [row.model_dump() for row in payload.rows], payload.as_of)
+    return {"created": created}
+
+
+@app.post("/api/opening-balances/preview")
+async def opening_balances_preview(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    content = await file.read()
+    try:
+        return preview_opening_balances(db, content)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/opening-balances/commit")
+def opening_balances_commit(payload: schemas.OpeningBalanceCommit, db: Session = Depends(get_db)):
+    try:
+        return commit_opening_balances(db, [row.model_dump() for row in payload.rows], payload.as_of)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @app.post("/api/vendors/{vendor_id}/purchase-bills", response_model=schemas.PurchaseBillRead, status_code=201)
 def create_purchase_bill_endpoint(vendor_id: int, payload: schemas.PurchaseBillCreate, db: Session = Depends(get_db)):
     try:
@@ -812,13 +881,18 @@ def list_expenses(db: Session = Depends(get_db)):
 
 @app.post("/api/expenses", response_model=schemas.ExpenseRead, status_code=201)
 def add_expense(payload: schemas.ExpenseCreate, db: Session = Depends(get_db)):
-    return create_expense(db, payload)
+    try:
+        return create_expense(db, payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.put("/api/expenses/{expense_id}", response_model=schemas.ExpenseRead)
 def edit_expense(expense_id: int, payload: schemas.ExpenseCreate, db: Session = Depends(get_db)):
     try:
         return update_expense(db, expense_id, payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(404, "Expense not found") from exc
 
@@ -848,6 +922,14 @@ def list_journal(db: Session = Depends(get_db)):
     return list_journal_entries(db)
 
 
+@app.post("/api/journal/manual", response_model=schemas.JournalEntryRead, status_code=201)
+def create_manual_journal_entry_endpoint(payload: schemas.ManualJournalEntryCreate, db: Session = Depends(get_db)):
+    try:
+        return create_manual_journal_entry(db, payload.entry_date, payload.narration, [(line.account_id, line.debit, line.credit) for line in payload.lines])
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @app.get("/api/journal/{journal_entry_id}", response_model=schemas.JournalEntryRead)
 def read_journal_entry(journal_entry_id: int, db: Session = Depends(get_db)):
     try:
@@ -856,9 +938,58 @@ def read_journal_entry(journal_entry_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Journal entry not found") from exc
 
 
+@app.post("/api/journal/{journal_entry_id}/reverse", response_model=schemas.JournalEntryRead)
+def reverse_manual_journal_entry_endpoint(journal_entry_id: int, db: Session = Depends(get_db)):
+    try:
+        entry = get_journal_entry(db, journal_entry_id)
+    except Exception as exc:
+        raise HTTPException(404, "Journal entry not found") from exc
+    try:
+        return reverse_manual_journal_entry(db, entry.id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @app.get("/api/trial-balance", response_model=list[schemas.TrialBalanceRow])
 def trial_balance(db: Session = Depends(get_db)):
     return get_trial_balance(db)
+
+
+@app.get("/api/fixed-assets", response_model=list[schemas.FixedAssetRead])
+def list_fixed_assets_endpoint(db: Session = Depends(get_db)):
+    return list_fixed_assets(db)
+
+
+@app.post("/api/fixed-assets", response_model=schemas.FixedAssetRead, status_code=201)
+def create_fixed_asset_endpoint(payload: schemas.FixedAssetCreate, db: Session = Depends(get_db)):
+    try:
+        return create_fixed_asset(db, payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/fixed-assets/{fixed_asset_id}", response_model=schemas.FixedAssetRead)
+def read_fixed_asset(fixed_asset_id: int, db: Session = Depends(get_db)):
+    try:
+        return get_fixed_asset(db, fixed_asset_id)
+    except Exception as exc:
+        raise HTTPException(404, "Fixed asset not found") from exc
+
+
+@app.post("/api/fixed-assets/{fixed_asset_id}/depreciate", response_model=schemas.FixedAssetRead)
+def depreciate_fixed_asset_endpoint(fixed_asset_id: int, payload: schemas.DepreciationRunRequest, db: Session = Depends(get_db)):
+    try:
+        return record_depreciation(db, fixed_asset_id, payload.as_of_date)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/fixed-assets/{fixed_asset_id}/dispose", response_model=schemas.FixedAssetRead)
+def dispose_fixed_asset_endpoint(fixed_asset_id: int, payload: schemas.FixedAssetDisposeRequest, db: Session = Depends(get_db)):
+    try:
+        return dispose_fixed_asset(db, fixed_asset_id, payload.disposal_date, payload.disposal_value)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 def _csv_response(rows: list[dict], filename: str) -> StreamingResponse:
@@ -918,6 +1049,100 @@ def profit_and_loss(from_date: date = Query(...), to_date: date = Query(...), db
 @app.get("/api/balance-sheet")
 def balance_sheet(as_of: date = Query(...), db: Session = Depends(get_db)):
     return balance_sheet_report(db, as_of)
+
+
+@app.get("/api/cash-flow")
+def cash_flow(from_date: date = Query(...), to_date: date = Query(...), db: Session = Depends(get_db)):
+    return cash_flow_statement(db, from_date, to_date)
+
+
+@app.get("/api/ap-aging")
+def ap_aging(as_of: date = Query(...), db: Session = Depends(get_db)):
+    return ap_aging_report(db, as_of)
+
+
+@app.get("/api/financial-years", response_model=list[schemas.FinancialYearRead])
+def list_financial_years_endpoint(db: Session = Depends(get_db)):
+    return list_financial_years(db)
+
+
+@app.post("/api/financial-years", response_model=schemas.FinancialYearRead, status_code=201)
+def create_financial_year_endpoint(payload: schemas.FinancialYearCreate, db: Session = Depends(get_db)):
+    try:
+        return create_financial_year(db, payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/financial-years/{financial_year_id}", response_model=schemas.FinancialYearRead)
+def read_financial_year(financial_year_id: int, db: Session = Depends(get_db)):
+    try:
+        return get_financial_year(db, financial_year_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@app.post("/api/financial-years/{financial_year_id}/close", response_model=schemas.FinancialYearRead)
+def close_financial_year_endpoint(financial_year_id: int, db: Session = Depends(get_db)):
+    try:
+        fy = get_financial_year(db, financial_year_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    pl = profit_and_loss_report(db, fy.start_date, fy.end_date)
+    bs = balance_sheet_report(db, fy.end_date)
+    try:
+        return close_financial_year(
+            db, financial_year_id,
+            Decimal(str(pl["total_income"])), Decimal(str(pl["total_expense"])), Decimal(str(pl["net_profit"])),
+            Decimal(str(bs["total_assets"])), Decimal(str(bs["total_liabilities"])), Decimal(str(bs["total_equity"])),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/financial-years/{financial_year_id}/reopen", response_model=schemas.FinancialYearRead)
+def reopen_financial_year_endpoint(financial_year_id: int, db: Session = Depends(get_db)):
+    try:
+        return reopen_financial_year(db, financial_year_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/stock-items", response_model=list[schemas.StockItemRead])
+def list_stock_items_endpoint(low_stock: bool = Query(False), db: Session = Depends(get_db)):
+    return list_stock_items(db, low_stock)
+
+
+@app.post("/api/stock-items", response_model=schemas.StockItemRead, status_code=201)
+def create_stock_item_endpoint(payload: schemas.StockItemCreate, db: Session = Depends(get_db)):
+    try:
+        return create_stock_item(db, payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/stock-items/{stock_item_id}", response_model=schemas.StockItemRead)
+def read_stock_item(stock_item_id: int, db: Session = Depends(get_db)):
+    try:
+        return get_stock_item(db, stock_item_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@app.put("/api/stock-items/{stock_item_id}", response_model=schemas.StockItemRead)
+def update_stock_item_endpoint(stock_item_id: int, payload: schemas.StockItemCreate, db: Session = Depends(get_db)):
+    try:
+        return update_stock_item(db, stock_item_id, payload)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@app.post("/api/stock-items/{stock_item_id}/movements", response_model=schemas.StockItemRead, status_code=201)
+def record_stock_movement_endpoint(stock_item_id: int, payload: schemas.StockMovementCreate, db: Session = Depends(get_db)):
+    try:
+        return record_stock_movement(db, stock_item_id, payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.get("/api/tally/export/masters")
