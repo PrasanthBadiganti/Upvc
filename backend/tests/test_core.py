@@ -2071,3 +2071,83 @@ def test_quotation_item_sft_rounds_up_to_whole_number_from_dimensions():
         assert Decimal(item["sft"]) == Decimal("187.00")
         assert Decimal(item["total_sft"]) == Decimal("187.00")
         assert Decimal(item["amount"]) == Decimal("187000.00")
+
+
+def _create_bank_account(client, name="HDFC Bank - Current A/c"):
+    resp = client.post("/api/bank-accounts", json={
+        "name": name, "bank_name": "HDFC Bank", "account_number": "50100123456789",
+        "ifsc": "HDFC0001234", "account_type": "Current", "status": "Active", "notes": "",
+    })
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def test_bank_account_crud():
+    with TestClient(app) as client:
+        account = _create_bank_account(client)
+        assert account["status"] == "Active"
+        assert account["bank_name"] == "HDFC Bank"
+
+        listed = client.get("/api/bank-accounts").json()
+        assert any(a["id"] == account["id"] for a in listed)
+
+        fetched = client.get(f"/api/bank-accounts/{account['id']}")
+        assert fetched.status_code == 200, fetched.text
+
+        updated = client.put(f"/api/bank-accounts/{account['id']}", json={**account, "status": "Inactive"})
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["status"] == "Inactive"
+
+        active_only = client.get("/api/bank-accounts", params={"status": "Active"}).json()
+        assert all(a["status"] == "Active" for a in active_only)
+
+
+def test_invoice_payment_can_link_to_bank_account():
+    with TestClient(app) as client:
+        account = _create_bank_account(client, name="ICICI - Current A/c")
+        customer = _create_customer(client, "Bank Link Buyer")
+        invoice = _create_invoice_for_customer(client, customer["id"])
+
+        payment = client.post(f"/api/invoices/{invoice['id']}/payments", json={
+            "payment_date": "2026-07-16", "mode": "NEFT", "reference_number": "TXN-BANK-1",
+            "amount": str(invoice["pending_balance"]), "received_by": "Admin", "notes": "",
+            "bank_account_id": account["id"],
+        })
+        assert payment.status_code == 201, payment.text
+        saved = payment.json()["payments"][0]
+        assert saved["bank_account_id"] == account["id"]
+        assert saved["bank_account"]["name"] == "ICICI - Current A/c"
+
+        fetched = client.get(f"/api/invoices/{invoice['id']}").json()
+        assert fetched["payments"][0]["bank_account"]["name"] == "ICICI - Current A/c"
+
+
+def test_vendor_payment_can_link_to_bank_account():
+    with TestClient(app) as client:
+        account = _create_bank_account(client, name="SBI - OD A/c")
+        vendor = _create_vendor(client, name="Bank Link Vendor")
+        bill = _create_purchase_bill(client, vendor["id"])
+
+        payment = client.post(f"/api/purchase-bills/{bill['id']}/payments", json={
+            "payment_date": "2026-07-16", "mode": "Cheque", "reference_number": "CHQ-1",
+            "amount": str(bill["pending_balance"]), "paid_by": "Admin", "notes": "",
+            "bank_account_id": account["id"],
+        })
+        assert payment.status_code == 201, payment.text
+        saved = payment.json()["payments"][0]
+        assert saved["bank_account_id"] == account["id"]
+        assert saved["bank_account"]["name"] == "SBI - OD A/c"
+
+
+def test_payment_without_bank_account_stays_optional():
+    with TestClient(app) as client:
+        customer = _create_customer(client, "No Bank Link Buyer")
+        invoice = _create_invoice_for_customer(client, customer["id"])
+        payment = client.post(f"/api/invoices/{invoice['id']}/payments", json={
+            "payment_date": "2026-07-16", "mode": "Cash", "reference_number": "",
+            "amount": str(invoice["pending_balance"]), "received_by": "Admin", "notes": "",
+        })
+        assert payment.status_code == 201, payment.text
+        saved = payment.json()["payments"][0]
+        assert saved["bank_account_id"] is None
+        assert saved["bank_account"] is None

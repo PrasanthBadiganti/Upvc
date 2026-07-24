@@ -1,20 +1,14 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Boxes, CircleDot, DoorOpen, FileDown, Grid3X3, Layers3, Palette, Plus, Save, Send, Shield, Trash2 } from 'lucide-react';
+import { Boxes, CircleDot, DoorOpen, FileDown, Grid3X3, Layers3, Palette, Plus, Save, Send, Shield, Trash2, UserPlus2 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
-import { Button, Card, Field, Input, PageHeader, Select } from '../components/UI';
+import { Button, Card, Field, Input, Modal, PageHeader, Select } from '../components/UI';
 import { CatalogItem, Customer, QuotationItem } from '../types';
-import { currency } from '../utils';
+import { currency, INDIAN_STATES } from '../utils';
 
-const baseItems: QuotationItem[] = [
-  {category:'Sliding Window',style:'2 Track 2 Shutter',width_mm:1200,height_mm:1200,sft:11.56,quantity:2,total_sft:23.12,rate_per_sft:950,amount:21964,location:'Living Room'},
-  {category:'Sliding Window',style:'3 Track 3 Shutter',width_mm:1800,height_mm:1200,sft:17.34,quantity:2,total_sft:34.68,rate_per_sft:1050,amount:36414,location:'Bed Room 1'},
-  {category:'Fixed Glass',style:'Fixed',width_mm:900,height_mm:1200,sft:8.67,quantity:1,total_sft:8.67,rate_per_sft:850,amount:7369.5,location:'Staircase'},
-  {category:'Sliding Door',style:'2 Track 2 Shutter',width_mm:1800,height_mm:2100,sft:26.25,quantity:1,total_sft:26.25,rate_per_sft:1150,amount:30187.5,location:'Balcony'},
-  {category:'Ventilator',style:'Top Hung',width_mm:600,height_mm:450,sft:2.92,quantity:2,total_sft:5.83,rate_per_sft:900,amount:5247,location:'Toilet'},
-];
+const emptyItem = (): QuotationItem => ({catalog_item_id:null,category:'',style:'',width_mm:0,height_mm:0,sft:0,quantity:1,total_sft:0,rate_per_sft:0,amount:0,location:''});
 
-const emptyItem = (): QuotationItem => ({catalog_item_id:null,category:'Sliding Window',style:'2 Track',width_mm:1000,height_mm:1000,sft:10.76,quantity:1,total_sft:10.76,rate_per_sft:850,amount:9146,location:''});
+const blankNewCustomer = {name:'',phone:'',email:'',address:'',gst_number:'',state:'',project_site:''};
 
 export default function CreateQuotation() {
   const navigate = useNavigate();
@@ -24,13 +18,16 @@ export default function CreateQuotation() {
   const [customers,setCustomers] = useState<Customer[]>([]);
   const [catalog,setCatalog] = useState<CatalogItem[]>([]);
   const [customerId,setCustomerId] = useState<number>(0);
-  const [items,setItems] = useState<QuotationItem[]>(baseItems);
-  const [transport,setTransport] = useState(2500);
-  const [discount,setDiscount] = useState(5059.1);
+  const [items,setItems] = useState<QuotationItem[]>([emptyItem()]);
+  const [transport,setTransport] = useState(0);
+  const [discount,setDiscount] = useState(0);
   const [status,setStatus] = useState('Draft');
   const [saving,setSaving] = useState(false);
-  const [form,setForm] = useState({quotation_date:new Date().toISOString().slice(0,10),validity_days:30,sales_person:'Arun Verma',site_location:'Greenview Residency, Gandhinagar, Gujarat',address:'Plot No. 45, Sector 9, Gandhinagar, Gujarat - 382009',notes:'All dimensions are in mm. Delivery in 15-18 working days after confirmation.'});
-  useEffect(()=>{ api.get('/customers').then(r=>{setCustomers(r.data); if(!isEditing && r.data[0]) setCustomerId(r.data[0].id);}); api.get('/catalog',{params:{status:'Active'}}).then(r=>setCatalog(r.data)); },[isEditing]);
+  const [form,setForm] = useState({quotation_date:'',validity_days:0,sales_person:'',site_location:'',address:'',notes:''});
+  const [newCustomerOpen,setNewCustomerOpen] = useState(false);
+  const [newCustomer,setNewCustomer] = useState(blankNewCustomer);
+  const [newCustomerSaving,setNewCustomerSaving] = useState(false);
+  useEffect(()=>{ api.get('/customers').then(r=>setCustomers(r.data)); api.get('/catalog',{params:{status:'Active'}}).then(r=>setCatalog(r.data)); },[]);
   useEffect(()=>{
     if(!quoteId) return;
     api.get(`/quotations/${quoteId}`).then(({data})=>{
@@ -108,7 +105,7 @@ export default function CreateQuotation() {
   };
 
   const save = async (send=false) => {
-    if(!customerId) return;
+    if(!customerId || !form.sales_person || !form.quotation_date || !form.validity_days) return;
     setSaving(true);
     try {
       const selected=customers.find(c=>c.id===customerId);
@@ -116,6 +113,20 @@ export default function CreateQuotation() {
       const {data}=isEditing ? await api.put(`/quotations/${quoteId}`,payload) : await api.post('/quotations',payload);
       navigate(isEditing ? `/quotations/${data.id}` : '/quotations',{state:{created:data.number}});
     } finally { setSaving(false); }
+  };
+
+  const submitNewCustomer = async (e:FormEvent) => {
+    e.preventDefault();
+    if(!newCustomer.name) return;
+    setNewCustomerSaving(true);
+    try {
+      const {data} = await api.post('/customers',{...newCustomer,assigned_to:form.sales_person || undefined,status:'New'});
+      setCustomers(prev=>[...prev,data]);
+      setCustomerId(data.id);
+      setForm(f=>({...f,address:f.address || data.address,site_location:f.site_location || data.project_site}));
+      setNewCustomerOpen(false);
+      setNewCustomer(blankNewCustomer);
+    } finally { setNewCustomerSaving(false); }
   };
 
   const selected=customers.find(c=>c.id===customerId);
@@ -127,13 +138,21 @@ export default function CreateQuotation() {
         <Card className="quote-form-card">
           <h3>Customer Details</h3>
           <div className="customer-form-grid">
-            <Field label="Customer Name" required><Select value={customerId} onChange={e=>setCustomerId(Number(e.target.value))}>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field>
+            <Field label="Customer Name" required>
+              <div style={{display:'flex',gap:8}}>
+                <Select required style={{flex:1}} value={customerId} onChange={e=>setCustomerId(Number(e.target.value))}>
+                  <option value={0} disabled>Select customer...</option>
+                  {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                </Select>
+                <button type="button" className="icon-btn" title="Onboard new customer" onClick={()=>setNewCustomerOpen(true)}><UserPlus2 size={17}/></button>
+              </div>
+            </Field>
             <Field label="Phone"><Input readOnly value={selected?.phone||''}/></Field>
             <Field label="Site Location"><Input value={form.site_location} onChange={e=>setForm({...form,site_location:e.target.value})}/></Field>
-            <Field label="Sales Person" required><Select value={form.sales_person} onChange={e=>setForm({...form,sales_person:e.target.value})}><option>Arun Verma</option><option>Neha Kapoor</option><option>Rohit Singh</option></Select></Field>
+            <Field label="Sales Person" required><Select required value={form.sales_person} onChange={e=>setForm({...form,sales_person:e.target.value})}><option value="" disabled>Select sales person...</option><option>Arun Verma</option><option>Neha Kapoor</option><option>Rohit Singh</option></Select></Field>
             <Field label="Address"><Input value={form.address} onChange={e=>setForm({...form,address:e.target.value})}/></Field>
-            <Field label="Quotation Date" required><Input type="date" value={form.quotation_date} onChange={e=>setForm({...form,quotation_date:e.target.value})}/></Field>
-            <Field label="Validity" required><Select value={form.validity_days} onChange={e=>setForm({...form,validity_days:Number(e.target.value)})}><option value={15}>15 Days</option><option value={30}>30 Days</option><option value={45}>45 Days</option></Select></Field>
+            <Field label="Quotation Date" required><Input type="date" required value={form.quotation_date} onChange={e=>setForm({...form,quotation_date:e.target.value})}/></Field>
+            <Field label="Validity" required><Select required value={form.validity_days || ''} onChange={e=>setForm({...form,validity_days:Number(e.target.value)})}><option value="" disabled>Select validity...</option><option value={15}>15 Days</option><option value={30}>30 Days</option><option value={45}>45 Days</option></Select></Field>
             <Field label="Status"><Select value={status} onChange={e=>setStatus(e.target.value)}><option>Draft</option><option>Sent</option><option>Accepted</option></Select></Field>
           </div>
         </Card>
@@ -145,9 +164,9 @@ export default function CreateQuotation() {
             <td><select value={row.catalog_item_id || ''} onChange={e=>applyCatalog(i,Number(e.target.value))}><option value="">Manual</option>{catalog.map(item=><option key={item.id} value={item.id}>{item.name} - {currency(item.rate_per_sft)}</option>)}</select></td>
             <td><input value={row.category} onChange={e=>update(i,'category',e.target.value)}/></td><td><input value={row.style} onChange={e=>update(i,'style',e.target.value)}/></td>
             <td><input value={row.hsn_code||''} onChange={e=>update(i,'hsn_code',e.target.value)}/></td>
-            <td><input type="number" value={row.width_mm} onChange={e=>update(i,'width_mm',e.target.value)}/></td><td><input type="number" value={row.height_mm} onChange={e=>update(i,'height_mm',e.target.value)}/></td>
-            <td><input type="number" value={row.sft} onChange={e=>update(i,'sft',e.target.value)}/></td><td><input type="number" value={row.quantity} onChange={e=>update(i,'quantity',e.target.value)}/></td>
-            <td>{row.total_sft.toFixed(2)}</td><td><input type="number" value={row.rate_per_sft} onChange={e=>update(i,'rate_per_sft',e.target.value)}/></td><td className="amount">{currency(row.amount,2)}</td>
+            <td><input type="number" placeholder="0" value={row.width_mm || ''} onChange={e=>update(i,'width_mm',e.target.value)}/></td><td><input type="number" placeholder="0" value={row.height_mm || ''} onChange={e=>update(i,'height_mm',e.target.value)}/></td>
+            <td><input type="number" placeholder="0" value={row.sft || ''} onChange={e=>update(i,'sft',e.target.value)}/></td><td><input type="number" value={row.quantity} onChange={e=>update(i,'quantity',e.target.value)}/></td>
+            <td>{row.total_sft.toFixed(2)}</td><td><input type="number" placeholder="0" value={row.rate_per_sft || ''} onChange={e=>update(i,'rate_per_sft',e.target.value)}/></td><td className="amount">{currency(row.amount,2)}</td>
             <td><input value={row.location} onChange={e=>update(i,'location',e.target.value)}/></td><td><button className="delete-mini" onClick={()=>setItems(items.filter((_,x)=>x!==i))}><Trash2 size={14}/></button></td>
           </tr>)}</tbody></table></div>
           <div className="quote-table-footer"><Button tone="ghost" onClick={()=>setItems([...items,emptyItem()])}><Plus size={14}/> Add New Item</Button><div><b>Total SFT&nbsp;&nbsp; {totals.totalSft.toFixed(2)}</b>&nbsp;&nbsp;&nbsp;&nbsp;<b>{currency(totals.subtotal,2)}</b></div></div>
@@ -159,15 +178,15 @@ export default function CreateQuotation() {
             [CircleDot,'Glass Color',specSource?.glass_color || 'Manual','Selected tint'],[Shield,'Hardware',specSource?.hardware || 'Manual','Hardware set'],[Boxes,'Reinforcement',specSource?.reinforcement || 'Manual','Internal support'],[Grid3X3,'Mesh',specSource?.mesh || 'Manual','Mesh option']
           ].map(([Icon,label,value,desc],i)=>{const I=Icon as typeof Layers3; return <div className="spec-card" key={i}><I className="spec-icon" size={23}/><div><small>{String(label)}</small><b>{String(value)}</b><em>{String(desc)}</em></div></div>})}
         </div>
-        <Card className="quote-notes"><small>Notes / Special Instructions (Optional)</small><p>{form.notes}</p></Card>
+        <Card className="quote-notes"><small>Notes / Special Instructions (Optional)</small><textarea className="input" placeholder="Add any notes or special instructions..." value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></Card>
       </div>
 
       <aside>
         <Card className="quote-summary">
           <h3>Quotation Summary</h3>
           <div className="summary-line"><span>Subtotal</span><span>{currency(totals.subtotal,2)}</span></div>
-          <div className="summary-line"><span>Transport</span><Input type="number" value={transport} onChange={e=>setTransport(Number(e.target.value))} style={{width:105,height:31,textAlign:'right'}}/></div>
-          <div className="summary-line"><span>Discount</span><Input type="number" value={discount} onChange={e=>setDiscount(Number(e.target.value))} style={{width:105,height:31,textAlign:'right',color:'#0eaf72'}}/></div>
+          <div className="summary-line"><span>Transport</span><Input type="number" placeholder="0" value={transport || ''} onChange={e=>setTransport(Number(e.target.value))} style={{width:105,height:31,textAlign:'right'}}/></div>
+          <div className="summary-line"><span>Discount</span><Input type="number" placeholder="0" value={discount || ''} onChange={e=>setDiscount(Number(e.target.value))} style={{width:105,height:31,textAlign:'right',color:'#0eaf72'}}/></div>
           <div className="summary-line"><span>Taxable Amount</span><span>{currency(totals.taxable,2)}</span></div>
           <div className="summary-line"><span>GST (18%)</span><span>{currency(totals.gst,2)}</span></div>
           <div className="summary-line total"><span>Grand Total</span><span>{currency(totals.grand,2)}</span></div>
@@ -179,5 +198,20 @@ export default function CreateQuotation() {
           <div className="quote-actionbar"><Button tone="secondary" onClick={()=>save(false)} disabled={saving}><Save size={15}/> {isEditing?'Save Changes':'Save Draft'}</Button><Button tone="secondary" onClick={()=>window.print()}><FileDown size={15}/> Preview PDF</Button><Button onClick={()=>save(true)} disabled={saving}><Send size={15}/> Send Quotation</Button></div>
       </aside>
     </div>
+
+    <Modal open={newCustomerOpen} onClose={()=>setNewCustomerOpen(false)} title="Onboard New Customer" width={640}>
+      <form onSubmit={submitNewCustomer}>
+        <div className="form-grid">
+          <Field label="Customer Name" required><Input required value={newCustomer.name} onChange={e=>setNewCustomer({...newCustomer,name:e.target.value})}/></Field>
+          <Field label="Phone"><Input value={newCustomer.phone} onChange={e=>setNewCustomer({...newCustomer,phone:e.target.value})}/></Field>
+          <Field label="Email"><Input type="email" value={newCustomer.email} onChange={e=>setNewCustomer({...newCustomer,email:e.target.value})}/></Field>
+          <Field label="GST Number"><Input value={newCustomer.gst_number} onChange={e=>setNewCustomer({...newCustomer,gst_number:e.target.value})}/></Field>
+          <Field label="State"><Select value={newCustomer.state} onChange={e=>setNewCustomer({...newCustomer,state:e.target.value})}><option value="">Select state</option>{INDIAN_STATES.map(s=><option key={s}>{s}</option>)}</Select></Field>
+          <Field label="Project / Site"><Input value={newCustomer.project_site} onChange={e=>setNewCustomer({...newCustomer,project_site:e.target.value})}/></Field>
+          <Field label="Address"><textarea className="input" value={newCustomer.address} onChange={e=>setNewCustomer({...newCustomer,address:e.target.value})}/></Field>
+        </div>
+        <div className="form-actions"><Button type="button" tone="secondary" onClick={()=>setNewCustomerOpen(false)}>Cancel</Button><Button type="submit" disabled={newCustomerSaving}><UserPlus2 size={14}/> Save &amp; Select Customer</Button></div>
+      </form>
+    </Modal>
   </>;
 }

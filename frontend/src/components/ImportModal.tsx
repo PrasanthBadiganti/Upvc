@@ -63,9 +63,9 @@ export default function ImportModal({ open, onClose, title, previewUrl, commitUr
   return <Modal open={open} onClose={close} title={title} width={900}>
     {!preview ? <>
       <Field label={acceptTallyXml ? 'CSV or Tally Ledger Masters XML' : 'CSV File'} required><Input type="file" accept={acceptTallyXml ? '.csv,.xml' : '.csv'} onChange={e => setFile(e.target.files?.[0] || null)} /></Field>
-      <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>First row must be a header including a <b>name</b> column. Optional columns: phone, email, address, gst_number, notes{extraHelp ? `, ${extraHelp}` : ''}.{acceptTallyXml && ' A Tally ledger-masters XML export (Sundry Debtors/Creditors) is also accepted — name, GSTIN, phone, address and opening balance are read automatically.'}</p>
+      <p className="muted" style={{ fontSize: 13.5, marginTop: 8 }}>First row must be a header including a <b>name</b> column. Optional columns: phone, email, address, gst_number, notes{extraHelp ? `, ${extraHelp}` : ''}.{acceptTallyXml && ' A Tally ledger-masters XML export (Sundry Debtors/Creditors) is also accepted — name, GSTIN, phone, address and opening balance are read automatically.'}</p>
       {showAsOfDate && <Field label="Opening Balances As Of"><Input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} /></Field>}
-      {error && <p style={{ color: '#e02424', fontSize: 12 }}>{error}</p>}
+      {error && <p style={{ color: '#e02424', fontSize: 13.5 }}>{error}</p>}
       <div className="form-actions"><Button type="button" tone="secondary" onClick={close}>Cancel</Button><Button type="button" onClick={runPreview} disabled={!file || loading}>Preview</Button></div>
     </> : <>
       <div className="table-wrap" style={{ maxHeight: 380, overflowY: 'auto' }}><table className="data-table"><thead><tr><th></th>{columns.map(c => <th key={c.key}>{c.label}</th>)}<th>Status</th></tr></thead><tbody>{preview.map((r, i) => <tr key={i}>

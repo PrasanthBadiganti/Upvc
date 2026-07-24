@@ -90,6 +90,12 @@ def ensure_schema() -> None:
             "logo_path": "VARCHAR(260) DEFAULT ''",
             "state": "VARCHAR(60) DEFAULT 'Andhra Pradesh'",
         },
+        "payments": {
+            "bank_account_id": "INTEGER",
+        },
+        "vendor_payments": {
+            "bank_account_id": "INTEGER",
+        },
     }
     with engine.begin() as connection:
         for table, columns in migrations.items():
@@ -580,9 +586,46 @@ def quotation_pdf(quotation_id: int, db: Session = Depends(get_db)):
     return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{quotation.number}.pdf"'})
 
 
+@app.get("/api/bank-accounts", response_model=list[schemas.BankAccountRead])
+def list_bank_accounts(status: str = "", db: Session = Depends(get_db)):
+    stmt = select(models.BankAccount).order_by(models.BankAccount.id)
+    if status:
+        stmt = stmt.where(models.BankAccount.status == status)
+    return db.scalars(stmt).all()
+
+
+@app.get("/api/bank-accounts/{bank_account_id}", response_model=schemas.BankAccountRead)
+def read_bank_account(bank_account_id: int, db: Session = Depends(get_db)):
+    account = db.get(models.BankAccount, bank_account_id)
+    if not account:
+        raise HTTPException(404, "Bank account not found")
+    return account
+
+
+@app.post("/api/bank-accounts", response_model=schemas.BankAccountRead, status_code=201)
+def add_bank_account(payload: schemas.BankAccountCreate, db: Session = Depends(get_db)):
+    account = models.BankAccount(**payload.model_dump())
+    db.add(account)
+    db.commit()
+    db.refresh(account)
+    return account
+
+
+@app.put("/api/bank-accounts/{bank_account_id}", response_model=schemas.BankAccountRead)
+def update_bank_account(bank_account_id: int, payload: schemas.BankAccountCreate, db: Session = Depends(get_db)):
+    account = db.get(models.BankAccount, bank_account_id)
+    if not account:
+        raise HTTPException(404, "Bank account not found")
+    for key, value in payload.model_dump().items():
+        setattr(account, key, value)
+    db.commit()
+    db.refresh(account)
+    return account
+
+
 @app.get("/api/invoices", response_model=list[schemas.InvoiceRead])
 def list_invoices(db: Session = Depends(get_db)):
-    stmt = select(models.Invoice).options(selectinload(models.Invoice.items), selectinload(models.Invoice.payments), joinedload(models.Invoice.customer), joinedload(models.Invoice.quotation).selectinload(models.Quotation.items), joinedload(models.Invoice.quotation).joinedload(models.Quotation.customer)).order_by(models.Invoice.id.desc())
+    stmt = select(models.Invoice).options(selectinload(models.Invoice.items), selectinload(models.Invoice.payments).joinedload(models.Payment.bank_account), joinedload(models.Invoice.customer), joinedload(models.Invoice.quotation).selectinload(models.Quotation.items), joinedload(models.Invoice.quotation).joinedload(models.Quotation.customer)).order_by(models.Invoice.id.desc())
     return db.scalars(stmt).unique().all()
 
 
@@ -824,7 +867,7 @@ def create_purchase_bill_endpoint(vendor_id: int, payload: schemas.PurchaseBillC
 
 @app.get("/api/purchase-bills", response_model=list[schemas.PurchaseBillRead])
 def list_purchase_bills(db: Session = Depends(get_db)):
-    stmt = select(models.PurchaseBill).options(selectinload(models.PurchaseBill.items), selectinload(models.PurchaseBill.payments), joinedload(models.PurchaseBill.vendor)).order_by(models.PurchaseBill.id.desc())
+    stmt = select(models.PurchaseBill).options(selectinload(models.PurchaseBill.items), selectinload(models.PurchaseBill.payments).joinedload(models.VendorPayment.bank_account), joinedload(models.PurchaseBill.vendor)).order_by(models.PurchaseBill.id.desc())
     return db.scalars(stmt).unique().all()
 
 

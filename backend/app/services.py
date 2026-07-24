@@ -198,7 +198,7 @@ def get_invoice(db: Session, invoice_id: int) -> models.Invoice:
         .where(models.Invoice.id == invoice_id)
         .options(
             selectinload(models.Invoice.items),
-            selectinload(models.Invoice.payments),
+            selectinload(models.Invoice.payments).joinedload(models.Payment.bank_account),
             joinedload(models.Invoice.customer),
             joinedload(models.Invoice.quotation).selectinload(models.Quotation.items),
             joinedload(models.Invoice.quotation).joinedload(models.Quotation.customer),
@@ -708,7 +708,7 @@ def get_purchase_bill(db: Session, purchase_bill_id: int) -> models.PurchaseBill
         .where(models.PurchaseBill.id == purchase_bill_id)
         .options(
             selectinload(models.PurchaseBill.items),
-            selectinload(models.PurchaseBill.payments),
+            selectinload(models.PurchaseBill.payments).joinedload(models.VendorPayment.bank_account),
             joinedload(models.PurchaseBill.vendor),
         )
     )

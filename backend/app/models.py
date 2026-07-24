@@ -82,6 +82,20 @@ class PricingRule(Base):
     discount_above_300: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=6)
 
 
+class BankAccount(Base):
+    __tablename__ = "bank_accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), index=True)
+    bank_name: Mapped[str] = mapped_column(String(160), default="")
+    account_number: Mapped[str] = mapped_column(String(80), default="")
+    ifsc: Mapped[str] = mapped_column(String(40), default="")
+    account_type: Mapped[str] = mapped_column(String(40), default="Current")
+    status: Mapped[str] = mapped_column(String(30), default="Active", index=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class BusinessSettings(Base):
     __tablename__ = "business_settings"
 
@@ -289,9 +303,11 @@ class Payment(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     received_by: Mapped[str] = mapped_column(String(120), default="Arun Verma")
     notes: Mapped[str] = mapped_column(Text, default="")
+    bank_account_id: Mapped[int | None] = mapped_column(ForeignKey("bank_accounts.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     invoice: Mapped[Invoice] = relationship(back_populates="payments")
+    bank_account: Mapped["BankAccount | None"] = relationship()
 
 
 class Followup(Base):
@@ -386,9 +402,11 @@ class VendorPayment(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     paid_by: Mapped[str] = mapped_column(String(120), default="Arun Verma")
     notes: Mapped[str] = mapped_column(Text, default="")
+    bank_account_id: Mapped[int | None] = mapped_column(ForeignKey("bank_accounts.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     purchase_bill: Mapped[PurchaseBill] = relationship(back_populates="payments")
+    bank_account: Mapped["BankAccount | None"] = relationship()
 
 
 class Expense(Base):

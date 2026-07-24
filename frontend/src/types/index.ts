@@ -105,6 +105,25 @@ export type InvoiceItem = {
   hsn_code: string;
 };
 
+export type BankAccount = {
+  id: number;
+  name: string;
+  bank_name: string;
+  account_number: string;
+  ifsc: string;
+  account_type: string;
+  status: string;
+  notes: string;
+  created_at: string;
+};
+
+export type BankAccountSummary = {
+  id: number;
+  name: string;
+  bank_name: string;
+  account_type: string;
+};
+
 export type Payment = {
   id: number;
   invoice_id: number;
@@ -114,6 +133,8 @@ export type Payment = {
   amount: number | string;
   received_by: string;
   notes: string;
+  bank_account_id?: number | null;
+  bank_account?: BankAccountSummary | null;
   created_at: string;
 };
 
@@ -238,6 +259,8 @@ export type VendorPayment = {
   amount: number | string;
   paid_by: string;
   notes: string;
+  bank_account_id?: number | null;
+  bank_account?: BankAccountSummary | null;
   created_at: string;
 };
 

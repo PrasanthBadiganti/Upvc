@@ -51,8 +51,8 @@ export default function Dashboard() {
           <ResponsiveContainer width="100%" height={210}>
             <BarChart data={data.monthly} barGap={2} margin={{ top: 15, right: 4, left: -20, bottom: 0 }}>
               <CartesianGrid stroke="#edf1f5" vertical={false} />
-              <XAxis dataKey="month" tick={{fontSize:9,fill:'#60708a'}} axisLine={false} tickLine={false} />
-              <YAxis tick={{fontSize:9,fill:'#60708a'}} axisLine={false} tickLine={false} />
+              <XAxis dataKey="month" tick={{fontSize:10.5,fill:'#60708a'}} axisLine={false} tickLine={false} />
+              <YAxis tick={{fontSize:10.5,fill:'#60708a'}} axisLine={false} tickLine={false} />
               <Tooltip />
               <Bar dataKey="quotations" fill="#3478f6" radius={[2,2,0,0]} barSize={12} />
               <Bar dataKey="invoices" fill="#18b7a4" radius={[2,2,0,0]} barSize={12} />

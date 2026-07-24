@@ -27,7 +27,7 @@ export default function TallyExport() {
     <PageHeader title="Tally Export" subtitle="Export ledgers and vouchers as Tally-compatible XML" />
     <Card className="settings-card">
       <h3>1. Ledger Masters</h3>
-      <p className="muted" style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 12 }}>
+      <p className="muted" style={{ fontSize: 13.5, lineHeight: 1.6, marginBottom: 12 }}>
         Exports every chart-of-accounts ledger plus one ledger per customer (under Sundry Debtors) and vendor (under Sundry Creditors).
         Import this first in Tally via Gateway of Tally &gt; Import Data &gt; Masters, before importing vouchers.
       </p>
@@ -36,7 +36,7 @@ export default function TallyExport() {
 
     <Card className="settings-card">
       <h3>2. Vouchers</h3>
-      <p className="muted" style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 12 }}>
+      <p className="muted" style={{ fontSize: 13.5, lineHeight: 1.6, marginBottom: 12 }}>
         Exports every journal entry in the selected period as a Tally voucher (Sales, Receipt, Purchase, Payment, Credit/Debit Note, or Journal).
         Import via Gateway of Tally &gt; Import Data &gt; Day Book / Vouchers, after the masters above are already in Tally.
       </p>
@@ -49,7 +49,7 @@ export default function TallyExport() {
 
     <Card className="settings-card">
       <h3>Before you rely on this</h3>
-      <p className="muted" style={{ fontSize: 12, lineHeight: 1.6 }}>
+      <p className="muted" style={{ fontSize: 13.5, lineHeight: 1.6 }}>
         This export follows Tally's documented XML import format, but it has not been tested against a live Tally installation.
         Import a small date range first and check a few vouchers land correctly before importing a full period.
       </p>

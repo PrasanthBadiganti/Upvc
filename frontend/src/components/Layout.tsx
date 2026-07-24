@@ -29,47 +29,83 @@ import {
   TrendingUp,
   Truck,
   UsersRound,
+  Wallet,
   Waves,
 } from 'lucide-react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import api from '../api';
 import { BusinessSettings, Customer, Invoice, Quotation } from '../types';
 
-const navigation = [
-  ['Dashboard', '/', LayoutDashboard],
-  ['Customers', '/customers', UsersRound],
-  ['Quotations', '/quotations', FileText],
-  ['Invoices', '/invoices', ReceiptText],
-  ['Credit Notes', '/credit-notes', FileMinus],
-  ['Debit Notes', '/debit-notes', FilePlus2],
-  ['Payments', '/payments', HandCoins],
-  ['Vendors', '/vendors', Truck],
-  ['Purchase Bills', '/purchase-bills', ClipboardList],
-  ['Expenses', '/expenses', Receipt],
-  ['Stock Items', '/stock-items', PackageSearch],
-  ['Fixed Assets', '/fixed-assets', Building2],
-  ['Chart of Accounts', '/accounts', BookOpen],
-  ['Journal', '/journal', ClipboardList],
-  ['Trial Balance', '/trial-balance', Scale],
-  ['Financial Years', '/financial-years', CalendarClock],
-  ['GST Reports', '/gst-reports', Percent],
-  ['Profit & Loss', '/profit-and-loss', ScrollText],
-  ['Balance Sheet', '/balance-sheet', Landmark],
-  ['Cash Flow', '/cash-flow', Waves],
-  ['AP Aging', '/ap-aging', Clock],
-  ['Tally Export', '/tally-export', FileArchive],
-  ['Opening Balances', '/opening-balances', FolderInput],
-  ['Follow-ups', '/followups', Bell],
-  ['Catalog', '/catalog', Boxes],
-  ['Reports', '/reports', TrendingUp],
-  ['Settings', '/settings', Settings],
+const navGroups = [
+  { key: 'top', label: null, items: [
+    ['Dashboard', '/', LayoutDashboard],
+  ] },
+  { key: 'sales', label: 'Sales & CRM', items: [
+    ['Customers', '/customers', UsersRound],
+    ['Quotations', '/quotations', FileText],
+    ['Invoices', '/invoices', ReceiptText],
+    ['Credit Notes', '/credit-notes', FileMinus],
+    ['Debit Notes', '/debit-notes', FilePlus2],
+    ['Payments', '/payments', HandCoins],
+    ['Follow-ups', '/followups', Bell],
+    ['Catalog', '/catalog', Boxes],
+  ] },
+  { key: 'purchasing', label: 'Purchasing & Inventory', items: [
+    ['Vendors', '/vendors', Truck],
+    ['Purchase Bills', '/purchase-bills', ClipboardList],
+    ['Expenses', '/expenses', Receipt],
+    ['Stock Items', '/stock-items', PackageSearch],
+  ] },
+  { key: 'accounting', label: 'Accounting', items: [
+    ['Bank Accounts', '/bank-accounts', Wallet],
+    ['Chart of Accounts', '/accounts', BookOpen],
+    ['Journal', '/journal', ClipboardList],
+    ['Trial Balance', '/trial-balance', Scale],
+    ['Fixed Assets', '/fixed-assets', Building2],
+    ['Financial Years', '/financial-years', CalendarClock],
+  ] },
+  { key: 'reports', label: 'Reports & Filing', items: [
+    ['GST Reports', '/gst-reports', Percent],
+    ['Profit & Loss', '/profit-and-loss', ScrollText],
+    ['Balance Sheet', '/balance-sheet', Landmark],
+    ['Cash Flow', '/cash-flow', Waves],
+    ['AP Aging', '/ap-aging', Clock],
+    ['Reports', '/reports', TrendingUp],
+  ] },
+  { key: 'data', label: 'Data Tools', items: [
+    ['Tally Export', '/tally-export', FileArchive],
+    ['Opening Balances', '/opening-balances', FolderInput],
+  ] },
+  { key: 'bottom', label: null, items: [
+    ['Settings', '/settings', Settings],
+  ] },
 ] as const;
+
+const DEFAULT_EXPANDED_GROUPS = ['sales', 'purchasing'];
+const SIDEBAR_STORAGE_KEY = 'upvc-sidebar-expanded-groups';
+
+function renderNavItem([label, path, Icon]: readonly [string, string, typeof LayoutDashboard]) {
+  return (
+    <NavLink key={path} to={path} end={path === '/'} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+      <Icon size={18} strokeWidth={1.8} />
+      <span>{label}</span>
+    </NavLink>
+  );
+}
+
+function groupKeyForPath(pathname: string): string | null {
+  for (const group of navGroups) {
+    if (group.items.some(([, path]) => path === '/' ? pathname === '/' : pathname.startsWith(path))) return group.key;
+  }
+  return null;
+}
 
 type SearchResults = { customers: Customer[]; invoices: Invoice[]; quotations: Quotation[] };
 const emptyResults: SearchResults = { customers: [], invoices: [], quotations: [] };
 
 export default function Layout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [business, setBusiness] = useState<BusinessSettings | null>(null);
   const [overdueCount, setOverdueCount] = useState(0);
   const [allInvoices, setAllInvoices] = useState<Invoice[]>([]);
@@ -78,6 +114,28 @@ export default function Layout() {
   const [results, setResults] = useState<SearchResults>(emptyResults);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [expandedGroups, setExpandedGroups] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : DEFAULT_EXPANDED_GROUPS;
+    } catch { return DEFAULT_EXPANDED_GROUPS; }
+  });
+
+  useEffect(() => {
+    const activeGroup = groupKeyForPath(location.pathname);
+    if (activeGroup && !expandedGroups.includes(activeGroup)) {
+      setExpandedGroups(prev => [...prev, activeGroup]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups(prev => {
+      const next = prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key];
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     api.get('/business-settings').then(r => setBusiness(r.data));
@@ -127,12 +185,21 @@ export default function Layout() {
           <div><strong>UPVC Pro</strong><small>Windows. Doors. Trust.</small></div>
         </div>
         <nav className="sidebar-nav">
-          {navigation.map(([label, path, Icon]) => (
-            <NavLink key={path} to={path} end={path === '/'} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <Icon size={20} strokeWidth={1.8} />
-              <span>{label}</span>
-            </NavLink>
-          ))}
+          {navGroups.map(group => {
+            if (!group.label) {
+              return group.items.map(item => renderNavItem(item));
+            }
+            const expanded = expandedGroups.includes(group.key);
+            return (
+              <div className="nav-group" key={group.key}>
+                <button type="button" className="nav-group-header" onClick={() => toggleGroup(group.key)}>
+                  <span>{group.label}</span>
+                  <ChevronDown size={15} style={{ transform: expanded ? 'none' : 'rotate(-90deg)', transition: 'transform .15s' }} />
+                </button>
+                {expanded && group.items.map(item => renderNavItem(item))}
+              </div>
+            );
+          })}
         </nav>
         <div className="company-card">
           <div className="window-thumb">
@@ -158,21 +225,21 @@ export default function Layout() {
             <kbd>Ctrl + K</kbd>
             {searchOpen && query.trim().length >= 2 && (
               <div className="search-dropdown" style={{ position: 'absolute', top: '48px', left: 0, right: 0, background: '#fff', border: '1px solid var(--border)', borderRadius: 9, boxShadow: '0 12px 28px rgba(17,32,64,.14)', maxHeight: 360, overflowY: 'auto', zIndex: 30 }}>
-                {!hasResults && <div style={{ padding: '14px 16px', color: '#7a8699', fontSize: 13 }}>No matches for "{query.trim()}"</div>}
+                {!hasResults && <div style={{ padding: '14px 16px', color: '#7a8699', fontSize: 14 }}>No matches for "{query.trim()}"</div>}
                 {results.customers.length > 0 && <div>
-                  <div style={{ padding: '8px 16px 4px', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: '#8a95a5' }}>Customers</div>
+                  <div style={{ padding: '8px 16px 4px', fontSize: 13, textTransform: 'uppercase', letterSpacing: '.05em', color: '#8a95a5' }}>Customers</div>
                   {results.customers.map(c => <button key={c.id} onMouseDown={() => goTo(`/customers?q=${encodeURIComponent(c.name)}`)} className="search-result-row">
                     <b>{c.name}</b><small>{c.phone}</small>
                   </button>)}
                 </div>}
                 {results.invoices.length > 0 && <div>
-                  <div style={{ padding: '8px 16px 4px', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: '#8a95a5' }}>Invoices</div>
+                  <div style={{ padding: '8px 16px 4px', fontSize: 13, textTransform: 'uppercase', letterSpacing: '.05em', color: '#8a95a5' }}>Invoices</div>
                   {results.invoices.map(i => <button key={i.id} onMouseDown={() => goTo(`/invoices/${i.id}`)} className="search-result-row">
                     <b>{i.number}</b><small>{i.customer.name}</small>
                   </button>)}
                 </div>}
                 {results.quotations.length > 0 && <div>
-                  <div style={{ padding: '8px 16px 4px', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', color: '#8a95a5' }}>Quotations</div>
+                  <div style={{ padding: '8px 16px 4px', fontSize: 13, textTransform: 'uppercase', letterSpacing: '.05em', color: '#8a95a5' }}>Quotations</div>
                   {results.quotations.map(q => <button key={q.id} onMouseDown={() => goTo(`/quotations/${q.id}`)} className="search-result-row">
                     <b>{q.number}</b><small>{q.customer.name}</small>
                   </button>)}

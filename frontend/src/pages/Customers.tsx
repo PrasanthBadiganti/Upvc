@@ -184,7 +184,7 @@ export default function Customers() {
 
               <div className="detail-section">
                 <h4>Project / Site</h4>
-                <b style={{ fontSize: 11 }}>{activeCustomer.project_site || 'No project/site added'}</b>
+                <b style={{ fontSize: 13 }}>{activeCustomer.project_site || 'No project/site added'}</b>
                 <div className="info-line"><UsersRound size={15} />Salesperson: {activeCustomer.assigned_to}</div>
               </div>
 
@@ -202,7 +202,7 @@ export default function Customers() {
 
               <div className="detail-section">
                 <h4>Notes</h4>
-                <p className="muted" style={{ fontSize: 10, lineHeight: 1.6 }}>{activeCustomer.notes || 'No notes added yet.'}</p>
+                <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.6 }}>{activeCustomer.notes || 'No notes added yet.'}</p>
               </div>
 
               <div className="detail-section">
@@ -214,7 +214,7 @@ export default function Customers() {
               <div className="detail-section">
                 <h4>Recent Timeline</h4>
                 <div className="timeline">
-                  {profile?.timeline.length ? profile.timeline.slice(0, 6).map(item => <div className="timeline-item" key={`${item.type}-${item.at}-${item.detail}`}><b>{shortDate(item.at)}, {shortTime(item.at)} - {item.title}</b><br />{item.detail}</div>) : <p className="muted" style={{ fontSize: 10 }}>No customer activity yet.</p>}
+                  {profile?.timeline.length ? profile.timeline.slice(0, 6).map(item => <div className="timeline-item" key={`${item.type}-${item.at}-${item.detail}`}><b>{shortDate(item.at)}, {shortTime(item.at)} - {item.title}</b><br />{item.detail}</div>) : <p className="muted" style={{ fontSize: 12.5 }}>No customer activity yet.</p>}
                 </div>
               </div>
             </>

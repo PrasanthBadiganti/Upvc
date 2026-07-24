@@ -192,6 +192,32 @@ class InvoiceItemRead(ORMModel):
     hsn_code: str
 
 
+class BankAccountBase(BaseModel):
+    name: str
+    bank_name: str = ""
+    account_number: str = ""
+    ifsc: str = ""
+    account_type: str = "Current"
+    status: str = "Active"
+    notes: str = ""
+
+
+class BankAccountCreate(BankAccountBase):
+    pass
+
+
+class BankAccountRead(BankAccountBase, ORMModel):
+    id: int
+    created_at: datetime
+
+
+class BankAccountSummaryRead(ORMModel):
+    id: int
+    name: str
+    bank_name: str
+    account_type: str
+
+
 class PaymentCreate(BaseModel):
     payment_date: date = Field(default_factory=date.today)
     mode: str = "NEFT"
@@ -199,12 +225,14 @@ class PaymentCreate(BaseModel):
     amount: Decimal
     received_by: str = "Arun Verma"
     notes: str = ""
+    bank_account_id: int | None = None
 
 
 class PaymentRead(PaymentCreate, ORMModel):
     id: int
     invoice_id: int
     created_at: datetime
+    bank_account: BankAccountSummaryRead | None = None
 
 
 class InvoiceRead(ORMModel):
@@ -374,12 +402,14 @@ class VendorPaymentCreate(BaseModel):
     amount: Decimal
     paid_by: str = "Arun Verma"
     notes: str = ""
+    bank_account_id: int | None = None
 
 
 class VendorPaymentRead(VendorPaymentCreate, ORMModel):
     id: int
     purchase_bill_id: int
     created_at: datetime
+    bank_account: BankAccountSummaryRead | None = None
 
 
 class PurchaseBillRead(ORMModel):

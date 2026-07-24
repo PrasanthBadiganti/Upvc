@@ -57,7 +57,7 @@ export default function OpeningBalances() {
   return <>
     <PageHeader title="Opening Balances" subtitle="Bring your starting financial position over from Tally or any other software" />
     <Card className="settings-card">
-      <p className="muted" style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 12 }}>
+      <p className="muted" style={{ fontSize: 13.5, lineHeight: 1.6, marginBottom: 12 }}>
         Upload a trial balance as CSV with columns <b>name, debit, credit</b> — this is what any accounting software (Tally, Zoho, QuickBooks, Excel) exports.
         Each row is matched against your Customers, Vendors, and Chart of Accounts by name. Customer balances are recorded as an opening invoice so they show up
         correctly everywhere in the app; vendor and account balances post directly to the ledger. Import Customers/Vendors first if a party isn't matching.
@@ -67,7 +67,7 @@ export default function OpeningBalances() {
           <Field label="Trial Balance CSV" required><Input type="file" accept=".csv" onChange={e => setFile(e.target.files?.[0] || null)} /></Field>
           <Field label="As Of Date" required><Input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} /></Field>
         </div>
-        {error && <p style={{ color: '#e02424', fontSize: 12 }}>{error}</p>}
+        {error && <p style={{ color: '#e02424', fontSize: 13.5 }}>{error}</p>}
         <div className="form-actions"><Button onClick={runPreview} disabled={!file || loading}><Upload size={15} /> Preview</Button></div>
       </>}
     </Card>
