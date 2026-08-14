@@ -244,6 +244,8 @@ class InvoiceRead(ORMModel):
     due_date: date
     status: str
     subtotal: Decimal
+    transport: Decimal
+    discount: Decimal
     cgst: Decimal
     sgst: Decimal
     igst: Decimal

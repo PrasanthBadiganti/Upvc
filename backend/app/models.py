@@ -187,6 +187,8 @@ class Invoice(Base):
     due_date: Mapped[date] = mapped_column(Date)
     status: Mapped[str] = mapped_column(String(40), default="Unpaid", index=True)
     subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    transport: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    discount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     cgst: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     sgst: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     igst: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)

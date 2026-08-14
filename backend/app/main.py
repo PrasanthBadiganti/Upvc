@@ -76,6 +76,8 @@ def ensure_schema() -> None:
         },
         "invoices": {
             "igst": "NUMERIC(14, 2) DEFAULT 0",
+            "transport": "NUMERIC(14, 2) DEFAULT 0",
+            "discount": "NUMERIC(14, 2) DEFAULT 0",
         },
         "vendors": {
             "state": "VARCHAR(60) DEFAULT ''",

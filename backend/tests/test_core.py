@@ -57,6 +57,17 @@ def test_core_flow():
         invoice = client.post(f"/api/quotations/{quote.json()['id']}/convert")
         assert invoice.status_code == 200, invoice.text
         invoice_json = invoice.json()
+        assert Decimal(invoice_json["transport"]) == Decimal("1500.00")
+        assert Decimal(invoice_json["discount"]) == Decimal("0.00")
+        assert (
+            Decimal(invoice_json["subtotal"])
+            + Decimal(invoice_json["transport"])
+            - Decimal(invoice_json["discount"])
+            + Decimal(invoice_json["cgst"])
+            + Decimal(invoice_json["sgst"])
+            + Decimal(invoice_json["igst"])
+            == Decimal(invoice_json["grand_total"])
+        )
         amount = Decimal(invoice_json["pending_balance"]) / 2
         payment = client.post(f"/api/invoices/{invoice_json['id']}/payments", json={"payment_date": "2026-07-14", "mode": "UPI", "reference_number": "TEST123", "amount": str(amount), "received_by": "Admin", "notes": "Test payment"})
         assert payment.status_code == 201, payment.text

@@ -235,6 +235,8 @@ def convert_quotation_to_invoice(db: Session, quotation_id: int) -> models.Invoi
         due_date=date.today() + timedelta(days=30),
         status="Unpaid",
         subtotal=subtotal,
+        transport=money(quote.transport),
+        discount=money(quote.discount),
         cgst=Decimal("0") if interstate else money(total_gst / 2),
         sgst=Decimal("0") if interstate else money(total_gst / 2),
         igst=total_gst if interstate else Decimal("0"),

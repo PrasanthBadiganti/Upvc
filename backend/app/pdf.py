@@ -206,13 +206,15 @@ def build_invoice_pdf(invoice: Invoice, settings: BusinessSettings | None = None
     ]
     rows.extend([
         ["", "", "", "", "", "", "Subtotal", _money(invoice.subtotal)],
+        *([["", "", "", "", "", "", "Transport", _money(invoice.transport)]] if Decimal(invoice.transport or 0) else []),
+        *([["", "", "", "", "", "", "Discount", _money(invoice.discount)]] if Decimal(invoice.discount or 0) else []),
         *gst_rows,
         ["", "", "", "", "", "", "Grand Total", _money(invoice.grand_total)],
         ["", "", "", "", "", "", "Paid", _money(invoice.paid_amount)],
         ["", "", "", "", "", "", "Balance", _money(invoice.pending_balance)],
     ])
     story.extend([
-        _item_table(rows, [8 * mm, 50 * mm, 16 * mm, 20 * mm, 14 * mm, 24 * mm, 20 * mm, 34 * mm], len(rows) - 4 - len(gst_rows)),
+        _item_table(rows, [8 * mm, 50 * mm, 16 * mm, 20 * mm, 14 * mm, 24 * mm, 20 * mm, 34 * mm], len(invoice.items) + 1),
         Spacer(1, 10),
         _footer_blocks(settings, _business(settings).invoice_terms, styles),
     ])

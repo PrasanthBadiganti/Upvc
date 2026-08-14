@@ -75,6 +75,7 @@ def seed_database(db: Session) -> None:
         backfill_customer_details(db)
         backfill_catalog_details(db)
         backfill_line_item_hsn(db)
+        backfill_invoice_adjustments(db)
         return
 
     now = datetime.now().replace(second=0, microsecond=0)
@@ -153,6 +154,7 @@ def seed_database(db: Session) -> None:
     backfill_customer_details(db)
     backfill_catalog_details(db)
     backfill_line_item_hsn(db)
+    backfill_invoice_adjustments(db)
     ensure_business_settings(db)
 
 
@@ -232,6 +234,28 @@ def backfill_line_item_hsn(db: Session) -> None:
         code = CATALOG_HSN_CODES.get(item.category)
         if code and not item.hsn_code:
             item.hsn_code = code
+            changed = True
+    if changed:
+        db.commit()
+
+
+def backfill_invoice_adjustments(db: Session) -> None:
+    """Copy adjustment details to invoices created before those fields existed.
+
+    Converted invoices have a one-to-one source quotation, so the original
+    transport and discount values are the authoritative historical values.
+    """
+    changed = False
+    invoices = db.scalars(
+        select(models.Invoice).where(models.Invoice.quotation_id.is_not(None))
+    ).all()
+    for invoice in invoices:
+        quotation = invoice.quotation
+        if not quotation:
+            continue
+        if not invoice.transport and not invoice.discount and (quotation.transport or quotation.discount):
+            invoice.transport = quotation.transport
+            invoice.discount = quotation.discount
             changed = True
     if changed:
         db.commit()

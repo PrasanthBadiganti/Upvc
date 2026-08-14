@@ -147,6 +147,8 @@ export type Invoice = {
   due_date: string;
   status: string;
   subtotal: number | string;
+  transport: number | string;
+  discount: number | string;
   cgst: number | string;
   sgst: number | string;
   igst: number | string;
