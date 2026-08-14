@@ -1956,6 +1956,141 @@ def test_ap_aging_excludes_paid_bills():
         assert not any(r["vendor_id"] == vendor["id"] for r in aging["rows"])
 
 
+def test_end_to_end_procure_stock_sell_invoice_and_reports():
+    """Exercise the supported item lifecycle as one traceable business flow.
+
+    Stock is quantity-only and separate from sellable catalog items, so the
+    stock issue is explicitly recorded against the generated invoice rather
+    than assuming an unsupported automatic COGS/stock-consumption feature.
+    """
+    with TestClient(app) as client:
+        bank_resp = client.post("/api/bank-accounts", json={
+            "name": "Lifecycle Current Account", "bank_name": "Test Bank",
+            "account_number": "1234567890", "ifsc": "TEST0000123",
+            "account_type": "Current", "status": "Active", "notes": "",
+        })
+        assert bank_resp.status_code == 201, bank_resp.text
+        bank = bank_resp.json()
+
+        stock = _create_stock_item(client, "Lifecycle SS Roller Set", reorder_level="3")
+        vendor = _create_vendor(client, "Lifecycle Hardware Supplier")
+        purchase_resp = client.post(f"/api/vendors/{vendor['id']}/purchase-bills", json={
+            "vendor_bill_number": "LIFECYCLE-PB-001", "bill_date": "2026-08-01",
+            "due_date": "2026-08-31", "notes": "Components for lifecycle test",
+            "items": [{
+                "description": "Lifecycle SS Roller Set", "category": "Hardware",
+                "hsn_code": "8302.42", "unit": "Nos", "quantity": "10", "rate": "100",
+                "gst_percent": "18", "amount": "1000", "stock_item_id": stock["id"],
+            }],
+        })
+        assert purchase_resp.status_code == 201, purchase_resp.text
+        purchase = purchase_resp.json()
+        assert Decimal(purchase["grand_total"]) == Decimal("1180.00")
+        assert Decimal(client.get(f"/api/stock-items/{stock['id']}").json()["quantity_on_hand"]) == Decimal("10.00")
+
+        vendor_payment = client.post(f"/api/purchase-bills/{purchase['id']}/payments", json={
+            "payment_date": "2026-08-02", "mode": "NEFT", "reference_number": "LIFE-PB-PAY",
+            "amount": purchase["pending_balance"], "paid_by": "Accounts",
+            "notes": "Paid in full", "bank_account_id": bank["id"],
+        })
+        assert vendor_payment.status_code == 201, vendor_payment.text
+        assert vendor_payment.json()["status"] == "Paid"
+
+        catalog_resp = client.post("/api/catalog", json={
+            "category": "Windows", "product_type": "Sliding", "name": "Lifecycle Sliding Window",
+            "subtitle": "2 Track", "profile_brand": "Test", "profile_series": "60 mm",
+            "profile": "Test 60 mm", "track": "2 Track", "glass_type": "Clear",
+            "glass_thickness": "5 mm", "glass_color": "Clear", "glass": "5 mm Clear",
+            "hardware": "Lifecycle rollers", "reinforcement": "1.5 mm GI", "mesh": "",
+            "color": "White", "min_billable_sft": "0", "rate_per_sft": "1000",
+            "gst_percent": "18", "installation_rate": "0", "rounding_rule": "Round up",
+            "status": "Active", "hsn_code": "3925.20.00",
+        })
+        assert catalog_resp.status_code == 201, catalog_resp.text
+        catalog = catalog_resp.json()
+        customer = _create_customer(client, "Lifecycle GST Customer", state="Andhra Pradesh")
+        customer_update = client.put(f"/api/customers/{customer['id']}", json={
+            **customer, "gst_number": "37LIFECYCLE1Z5",
+        })
+        assert customer_update.status_code == 200, customer_update.text
+
+        quotation_resp = client.post("/api/quotations", json={
+            "customer_id": customer["id"], "quotation_date": "2026-08-03", "validity_days": 30,
+            "sales_person": "Arun Verma", "site_location": "Lifecycle Site", "address": "Test Address",
+            "status": "Sent", "transport": "200", "discount": "100", "notes": "Lifecycle sale",
+            "items": [{
+                "catalog_item_id": catalog["id"], "category": catalog["name"], "style": "2 Track",
+                "width_mm": "1000", "height_mm": "1000", "sft": "10", "quantity": 1,
+                "total_sft": "10", "rate_per_sft": "1000", "amount": "10000", "location": "Hall",
+            }],
+        })
+        assert quotation_resp.status_code == 201, quotation_resp.text
+        invoice_resp = client.post(f"/api/quotations/{quotation_resp.json()['id']}/convert")
+        assert invoice_resp.status_code == 200, invoice_resp.text
+        invoice = invoice_resp.json()
+        assert Decimal(invoice["subtotal"]) == Decimal("10000.00")
+        assert Decimal(invoice["transport"]) == Decimal("200.00")
+        assert Decimal(invoice["discount"]) == Decimal("100.00")
+        assert Decimal(invoice["cgst"]) == Decimal("909.00")
+        assert Decimal(invoice["sgst"]) == Decimal("909.00")
+        assert Decimal(invoice["grand_total"]) == Decimal("11918.00")
+        assert Decimal(invoice["subtotal"]) + Decimal(invoice["transport"]) - Decimal(invoice["discount"]) + Decimal(invoice["cgst"]) + Decimal(invoice["sgst"]) == Decimal(invoice["grand_total"])
+
+        invoice_pdf = client.get(f"/api/invoices/{invoice['id']}/pdf")
+        assert invoice_pdf.status_code == 200, invoice_pdf.text
+        assert invoice_pdf.headers["content-type"] == "application/pdf"
+        assert invoice_pdf.content.startswith(b"%PDF")
+
+        stock_out = client.post(f"/api/stock-items/{stock['id']}/movements", json={
+            "movement_date": "2026-08-03", "movement_type": "Out", "quantity": "2",
+            "reason": "Issued for sold window", "reference": invoice["number"], "notes": "",
+        })
+        assert stock_out.status_code == 201, stock_out.text
+        issued_stock = stock_out.json()
+        assert Decimal(issued_stock["quantity_on_hand"]) == Decimal("8.00")
+        assert issued_stock["movements"][-1]["reference"] == invoice["number"]
+
+        customer_payment = client.post(f"/api/invoices/{invoice['id']}/payments", json={
+            "payment_date": "2026-08-04", "mode": "UPI", "reference_number": "LIFE-INV-PAY",
+            "amount": invoice["pending_balance"], "received_by": "Accounts", "notes": "Paid in full",
+            "bank_account_id": bank["id"],
+        })
+        assert customer_payment.status_code == 201, customer_payment.text
+        assert customer_payment.json()["status"] == "Paid"
+
+        for source_type, source_id in [
+            ("PurchaseBill", purchase["id"]), ("VendorPayment", vendor_payment.json()["payments"][-1]["id"]),
+            ("Invoice", invoice["id"]), ("Payment", customer_payment.json()["payments"][-1]["id"]),
+        ]:
+            entries = _journal_entries_for(client, source_type, source_id)
+            assert len(entries) == 1, (source_type, source_id, entries)
+            _assert_balanced(entries[0])
+
+        gstr1 = client.get("/api/gst/gstr1", params=PERIOD)
+        assert gstr1.status_code == 200, gstr1.text
+        gstr1_row = next(row for row in gstr1.json()["b2b"] if row["invoice_number"] == invoice["number"])
+        assert Decimal(str(gstr1_row["taxable_value"])) == Decimal("10100.00")
+        assert Decimal(str(gstr1_row["cgst"])) == Decimal("909.00")
+        assert Decimal(str(gstr1_row["sgst"])) == Decimal("909.00")
+
+        gstr3b = client.get("/api/gst/gstr3b", params=PERIOD)
+        assert gstr3b.status_code == 200, gstr3b.text
+        assert gstr3b.json()["outward_taxable_supplies"]["cgst"] >= 909
+        assert gstr3b.json()["eligible_itc"]["cgst"] >= 90
+
+        pnl = client.get("/api/profit-and-loss", params=PERIOD)
+        assert pnl.status_code == 200, pnl.text
+        pnl_data = pnl.json()
+        assert pnl_data["total_income"] > 0 and pnl_data["total_expense"] > 0
+        assert abs(pnl_data["net_profit"] - (pnl_data["total_income"] - pnl_data["total_expense"])) < 0.01
+
+        balance_sheet = client.get("/api/balance-sheet", params={"as_of": "2026-12-31"})
+        assert balance_sheet.status_code == 200, balance_sheet.text
+        assert balance_sheet.json()["balanced"] is True
+        total_debit, total_credit = _trial_balance_totals(client)
+        assert total_debit == total_credit
+
+
 def test_gstr1_json_export_groups_b2b_by_gstin_with_correct_pos_and_split():
     with TestClient(app) as client:
         customer = _create_customer(client, "JSON B2B Buyer", state="Punjab")

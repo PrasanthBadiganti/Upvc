@@ -15,6 +15,7 @@ env/
 
 # Local databases and runtime data
 *.db
+*.db-journal
 *.sqlite
 *.sqlite3
 .desktop-data-test/
