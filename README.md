@@ -1,120 +1,297 @@
-# UPVC Pro -- Local Version Without Node or Docker
+# UPVC Pro - Enterprise ERP System
 
-This package contains the FastAPI backend, SQLite database, React source code, and a prebuilt frontend. Normal installation and startup require only Python. Node.js, npm, Docker, PostgreSQL, and any cloud service are not required.
+A comprehensive Enterprise Resource Planning (ERP) system built for UPVC (Unplasticized Polyvinyl Chloride) profile manufacturing and trading businesses.
 
-## What this is
+## Quick Start
 
-UPVC Pro is a local-first accounting/ERP system for a UPVC windows, doors, and glass business, built around this workflow:
+### Default Users & Credentials
 
-```text
-Customer/Lead -> Follow-up -> Quotation -> Invoice -> Payments -> Ledger -> GST/Financial Reports
-Vendor -> Purchase Bill -> Vendor Payment -> Ledger
+```
+SuperAdmin
+  Username: superadmin
+  Password: SuperAdmin@123
+  Email: superadmin@upvc.com
+
+Admin
+  Username: admin
+  Password: Admin@123
+  Email: admin@upvc.com
+
+Manager
+  Username: manager
+  Password: Manager@123
+  Email: manager@upvc.com
+
+DataEntry
+  Username: dataentry
+  Password: DataEntry@123
+  Email: dataentry@upvc.com
 ```
 
-Beyond the original CRM/quotation/invoice pipeline, it now includes a full double-entry general ledger with auto-posting from every transaction, GST filing reports (GSTR-1/3B, HSN summary, registers), purchasing and vendor management, inventory/stock tracking, fixed assets and depreciation, financial-year close with ledger locking, Tally import/export, and financial statements (P&L, Balance Sheet, Cash Flow, AP Aging).
+### Running the Application
 
-For the full module-by-module breakdown, the complete API/model/route inventory, verification status, and known limitations, see **[PROJECT_STATUS.md](PROJECT_STATUS.md)** — that is the living reference for continuing development; read it before changing code.
-
-New to the application itself (not the code)? **[KT_GUIDE.md](KT_GUIDE.md)** is a page-by-page knowledge transfer guide — what every screen is for, how to use it, what it updates elsewhere, and what to double-check. Start there if you're learning to *use* UPVC Pro rather than *develop* it.
-
-## Windows -- recommended
-
-1. Extract the ZIP fully to a normal folder such as `D:\Projects\upvc-pro-local-no-node`.
-2. Double-click `setup-local.bat` once.
-3. Double-click `start-local.bat` whenever you want to use the application.
-4. The browser opens at `http://127.0.0.1:8000`.
-5. Keep the command window open. Press `Ctrl+C` to stop the application.
-
-Requirements: Python 3.11 or newer. While installing Python, select **Add Python to PATH**.
-
-If port `8000` is already in use, `start-local.bat` automatically falls back to `http://127.0.0.1:8001` and prints the exact URL.
-
-## Windows desktop app
-
-For client machines, the application can also run as a desktop app using pywebview. The desktop app starts the same FastAPI backend internally and opens the existing React UI in an application window.
-
-Development run:
-
-```bat
-start-desktop.bat
-```
-
-Build an installable desktop package:
-
-```bat
-build-desktop.bat
-```
-
-Build output:
-
-- Desktop app folder: `desktop-dist\UPVC Pro\`
-- Main executable: `desktop-dist\UPVC Pro\UPVC Pro.exe`
-- Installer output, when Inno Setup is installed: `installer\Output\UPVC-Pro-Setup.exe`
-
-The desktop build stores the live SQLite database under the logged-in Windows user's local app data folder:
-
-```text
-%LOCALAPPDATA%\UPVC Pro\upvc_pro.db
-```
-
-Back up this file before reinstalling Windows or moving the client to another machine.
-
-## WSL, Linux, or macOS
-
+**Backend** (Terminal 1):
 ```bash
-chmod +x setup-local.sh start-local.sh
-./setup-local.sh
-./start-local.sh
+cd backend
+.\.venv\Scripts\python -m uvicorn app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000`.
-
-## URLs
-
-- Application: `http://127.0.0.1:8000`
-- API documentation: `http://127.0.0.1:8000/docs`
-- Health check: `http://127.0.0.1:8000/api/health`
-
-## Database
-
-The browser/local version creates SQLite automatically as `backend/upvc_pro.db`. The desktop EXE version stores it under `%LOCALAPPDATA%\UPVC Pro\upvc_pro.db`. Back up the active database file to preserve client data. Delete it only when intentionally resetting all data to the included sample dataset.
-
-## Frontend source
-
-Editable React/TypeScript source is under `frontend/src`. The already compiled browser files used during normal startup are under `frontend/dist`; therefore no frontend dependency installation is needed.
-
-For active frontend development, install Node.js 22 LTS or newer and run:
-
-```bat
-setup-frontend.bat
-start-frontend-dev.bat
+**Frontend** (Terminal 2):
+```bash
+cd frontend
+npm run dev
 ```
 
-This starts a separate Vite development server at `http://127.0.0.1:5173`. It proxies API calls to the FastAPI backend, so keep the backend running at `http://127.0.0.1:8001` while developing, or update `VITE_API_PROXY` if your backend is on a different port.
+Access: http://localhost:5173
 
-To create a fresh production frontend build:
+---
 
-```bat
-build-frontend.bat
+## Application Overview
+
+**UPVC Pro** is a full-stack ERP system for UPVC businesses with:
+
+- **Sales Management**: Customers, Quotations, Invoices, Payments
+- **Purchase Management**: Vendors, Purchase Bills, Vendor Payments
+- **Inventory**: Catalog management, Stock tracking
+- **Financial**: Chart of Accounts, Journal entries, Ledgers
+- **GST Compliance**: GSTR-1, GSTR-3B, HSN summaries
+- **Reporting**: P&L, Balance Sheet, Cash Flow, AP Aging
+- **Role-Based Access**: Four roles with granular permissions
+
+---
+
+## Roles & Permissions
+
+### Permission Matrix
+
+| Resource | SuperAdmin | Admin | Manager | DataEntry |
+|----------|:----------:|:-----:|:-------:|:---------:|
+| Customer | CRUD | CRUD | CRU | CR |
+| Quotation | CRUD | CRUD | CRU | CR |
+| Invoice | CRUD | CRUD | R | R |
+| Payment | CRUD | CRUD | CR | R |
+| Credit Note | CRUD | CRUD | R | R |
+| Debit Note | CRUD | CRUD | R | R |
+| Vendor | CRUD | CRUD | R | R |
+| Purchase Bill | CRUD | CRUD | R | R |
+| Expense | CRUD | CRUD | CRU | CR |
+| Catalog | CRUD | CRUD | R | R |
+| User | CRUD | R | R | - |
+| Role | CRUD | R | R | - |
+
+**Legend**: C=Create, R=Read, U=Update, D=Delete, "-"=No Access
+
+### Role Descriptions
+
+**SuperAdmin**: System administrator with complete access to all features and user management
+
+**Admin**: Business administrator with full operational access except user/role management
+
+**Manager**: Team lead with create/update permissions on customers, quotations, and expenses
+
+**DataEntry**: Data entry operator with create/read access on customers, quotations, and expenses only
+
+---
+
+## Core Business Workflows
+
+### 1. Sales Workflow
+```
+Customer → Quotation → Invoice → Payment → Closed
 ```
 
-The build command backs up the existing `frontend/dist` into `frontend/dist-backups` before generating a new `frontend/dist`. The application will automatically serve the updated `frontend/dist` on its next FastAPI restart.
+### 2. Purchase Workflow
+```
+Vendor → Purchase Bill → Payment → Closed
+```
 
-## Correctness & performance (audited 2026-07-24)
+### 3. Adjustments
+```
+Invoice → Credit Note (refund) / Debit Note (charges)
+```
 
-The system was put through a data-driven correctness audit and load test — 7,224 API requests created 3,000 quotations, 1,954 invoices, payments, credit/debit notes, purchase bills, stock movements, fixed-asset depreciation, and more, entirely against an isolated throwaway database (the real dev DB was untouched).
+### 4. GST Reporting
+```
+Monthly Transactions → GSTR-1 & GSTR-3B → GSTN Filing
+```
 
-- **Correctness: 16,440 automated checks, 0 failures.** Every derived value that's supposed to track another (customer/vendor outstanding balances, stock quantities, depreciation totals, ledger balance, GST report reconciliation) matched its independently-computed ground truth across the full dataset.
-- **One real finding, not yet fixed**: invoices don't carry a quotation's Transport/Discount forward as visible fields — the amount is correct but isn't itemized anywhere on the Invoice PDF or details page.
-- **Performance**: several list/report pages (Invoices, Quotations, Journal, Dashboard, Reports, Tally Voucher Export) slow down substantially once data volume passes a few thousand records — Tally Voucher Export in particular went from 51ms empty to 10+ seconds at full load. This is a known scaling limitation (no pagination yet), not a correctness issue.
+### 5. Financial Close
+```
+Transactions → P&L & Balance Sheet → Financial Year Close
+```
 
-Full detail, exact numbers, and the reasoning behind each finding: see **[PROJECT_STATUS.md](PROJECT_STATUS.md)** — "Data Integrity & Correctness Audit" and "Load & Performance Testing" sections.
+---
 
-## Automated checks
+## Technology Stack
+
+- **Backend**: FastAPI (Python 3.12)
+- **Frontend**: React 18 + Vite
+- **Database**: SQLite with SQLAlchemy ORM
+- **Authentication**: JWT + bcrypt password hashing
+- **PDF Generation**: ReportLab
+- **Testing**: pytest
+
+---
+
+## API Endpoints
+
+### Authentication
+- `POST /api/login` - Login user
+- `GET /api/me` - Current user profile
+- `GET /api/permissions` - User permissions
+
+### Users & Roles
+- `POST /api/users` - Create user
+- `GET /api/users` - List users
+- `GET /api/roles` - List roles
+
+### Sales
+- `POST /api/quotations` - Create quotation
+- `POST /api/quotations/{id}/convert` - Convert to invoice
+- `POST /api/invoices/{id}/payments` - Record payment
+- `POST /api/invoices/{id}/credit-notes` - Issue credit note
+
+### Purchase
+- `POST /api/vendors` - Create vendor
+- `POST /api/vendors/{id}/purchase-bills` - Create purchase bill
+- `POST /api/purchase-bills/{id}/payments` - Record payment
+
+### Reports
+- `GET /api/dashboard` - Dashboard metrics
+- `GET /api/gstr1` - GSTR-1 report
+- `GET /api/gstr3b` - GSTR-3B report
+- `GET /api/balance-sheet` - Balance sheet
+- `GET /api/profit-and-loss` - P&L statement
+
+---
+
+## Key Features
+
+### Sales Operations
+- ✅ Quotation to Invoice conversion
+- ✅ Multi-line item management
+- ✅ HSN code mapping for GST
+- ✅ Credit/Debit note issuance
+- ✅ Payment tracking with status
+- ✅ PDF generation (quotation, invoice, receipt)
+
+### Purchase Operations
+- ✅ Vendor management
+- ✅ Purchase bill creation with HSN codes
+- ✅ Vendor payment tracking
+- ✅ Purchase bill PDF generation
+- ✅ Purchase order history
+
+### Inventory
+- ✅ Product catalog with specifications
+- ✅ Stock level tracking
+- ✅ Stock movement recording
+- ✅ Opening balance import
+
+### Financial Management
+- ✅ Chart of Accounts (50+ default accounts)
+- ✅ Journal entry creation
+- ✅ Ledger reports by account
+- ✅ Trial balance
+- ✅ Fixed asset depreciation
+- ✅ Financial year management
+
+### GST Compliance
+- ✅ Automatic SGST/CGST/IGST calculation
+- ✅ GSTR-1 report generation
+- ✅ GSTR-3B summary
+- ✅ HSN-wise supply summary
+- ✅ JSON export for GSTN offline tool
+- ✅ Interstate/Intrastate detection
+
+### Reporting
+- ✅ Dashboard with metrics
+- ✅ Profit & Loss statement
+- ✅ Balance Sheet
+- ✅ Cash Flow statement
+- ✅ AP Aging analysis
+- ✅ Sales & Purchase registers
+- ✅ CSV export for all reports
+
+### Data Import
+- ✅ CSV import for customers
+- ✅ CSV import for vendors
+- ✅ Tally ledger masters XML import
+- ✅ Opening balances import
+
+### Role-Based Access Control
+- ✅ Four-tier role hierarchy
+- ✅ Granular permission matrix (12 resources)
+- ✅ JWT-based authentication
+- ✅ Bcrypt password hashing
+- ✅ Permission enforcement on all endpoints
+
+---
+
+## Installation
+
+### Prerequisites
+- Python 3.12+
+- Node.js 16+
+- Git
+
+### Backend Setup
+```bash
+cd backend
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### Frontend Setup
+```bash
+cd frontend
+npm install
+```
+
+---
+
+## Testing
 
 ```bash
 cd backend
-.venv/Scripts/python.exe -m pytest -q   # Windows
-# or
-.venv/bin/python -m pytest -q           # Linux/macOS
+.\.venv\Scripts\pytest tests/test_core.py -v
 ```
+
+---
+
+## Security Notes
+
+⚠️ **Important for Production**:
+1. Change all default credentials immediately
+2. Set a strong SECRET_KEY for JWT
+3. Enable HTTPS/TLS
+4. Implement database encryption
+5. Enable rate limiting
+6. Add audit logging
+7. Regular backups with encryption
+
+---
+
+## Database
+
+- **Location**: `backend/upvc_pro.db` (SQLite)
+- **Reset**: Delete the .db file and restart server
+- **Schema**: 18 core models with relationships
+
+---
+
+## Support
+
+- **API Docs**: http://localhost:8000/docs (Swagger)
+- **ReDoc**: http://localhost:8000/redoc
+- **Database**: SQLite in backend/upvc_pro.db
+
+---
+
+## Version
+
+**v1.0.0** (2026-08-16)
+
+Complete RBAC implementation with four roles, 11 resources, permission matrix, JWT authentication, and all business workflows enabled.
+
