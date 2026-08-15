@@ -17,7 +17,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy import text
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from . import models, schemas
+from . import licensing, models, schemas
 from .auth import hash_password
 from .backup_scheduler import get_scheduler
 from .database import Base, DEFAULT_DB_PATH, SessionLocal, engine, get_db
@@ -31,6 +31,7 @@ from .services import cancel_credit_note, cancel_debit_note, cancel_invoice, can
 from .tally_export import build_tally_masters_xml, build_tally_vouchers_xml
 from .routes import auth as auth_routes
 from .routes import backup as backup_routes
+from .routes import license as license_routes
 
 app = FastAPI(title="UPVC Pro API", version="1.0.0")
 app.add_middleware(
@@ -41,9 +42,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include auth and backup routes
+# Include auth, backup, and license routes
 app.include_router(auth_routes.router)
 app.include_router(backup_routes.router)
+app.include_router(license_routes.router)
 
 
 def seed_default_users(db: Session) -> None:

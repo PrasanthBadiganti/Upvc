@@ -1,0 +1,78 @@
+"""License management API endpoints"""
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from .. import auth, licensing, models
+from ..database import get_db
+
+router = APIRouter(prefix="/api", tags=["license"])
+
+
+@router.get("/license/info")
+def get_license_info(current_user: models.User = Depends(auth.get_current_user)):
+    """Get current license information (all authenticated users)"""
+    return licensing.get_license_info()
+
+
+@router.get("/license/machine-id")
+def get_machine_id(current_user: models.User = Depends(auth.get_current_user)):
+    """Get machine ID for this installation (all authenticated users)"""
+    return {
+        "machine_id": licensing.get_machine_id(),
+        "message": "Copy this Machine ID when requesting a license key"
+    }
+
+
+@router.post("/license/activate")
+def activate_license(
+    license_key: str,
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Activate a license key (requires authentication)"""
+    result = licensing.activate_license(license_key)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return result
+
+
+@router.post("/license/deactivate")
+def deactivate_license(
+    current_user: models.User = Depends(auth.require_permission("user", "delete")),
+    db: Session = Depends(get_db)
+):
+    """Deactivate current license (SuperAdmin only)"""
+    result = licensing.deactivate_license()
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return result
+
+
+@router.get("/license/check")
+def check_license_type():
+    """Check license type (master or viewer, no auth required)"""
+    if not licensing.is_licensed():
+        return {
+            "licensed": False,
+            "mode": "demo",
+            "message": "No valid license. Please activate a license."
+        }
+
+    if licensing.is_master_license():
+        return {
+            "licensed": True,
+            "mode": "master",
+            "features": "full"
+        }
+    elif licensing.is_viewer_license():
+        return {
+            "licensed": True,
+            "mode": "viewer",
+            "features": "read-only",
+            "message": "This is a viewer-only license. Read-only access only."
+        }
+    else:
+        return {
+            "licensed": False,
+            "mode": "demo"
+        }
