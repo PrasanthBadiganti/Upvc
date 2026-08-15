@@ -3,10 +3,54 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, Text, Table, Column, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
+
+
+# RBAC Models
+class Role(Base):
+    __tablename__ = "roles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True, index=True)  # SuperAdmin, Admin, Manager, DataEntry
+    description: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    users: Mapped[list["User"]] = relationship(back_populates="role")
+    permissions: Mapped[list["Permission"]] = relationship(back_populates="role", cascade="all, delete-orphan")
+
+
+class Permission(Base):
+    __tablename__ = "permissions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), index=True)
+    resource: Mapped[str] = mapped_column(String(50))  # customer, quotation, invoice, etc
+    create: Mapped[bool] = mapped_column(Boolean, default=False)
+    read: Mapped[bool] = mapped_column(Boolean, default=False)
+    update: Mapped[bool] = mapped_column(Boolean, default=False)
+    delete: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    role: Mapped["Role"] = relationship(back_populates="permissions")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255))
+    full_name: Mapped[str] = mapped_column(String(100), default="")
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    role: Mapped["Role"] = relationship(back_populates="users")
 
 
 class Customer(Base):

@@ -11,6 +11,75 @@ class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# RBAC Schemas
+class PermissionBase(BaseModel):
+    resource: str
+    create: bool = False
+    read: bool = False
+    update: bool = False
+    delete: bool = False
+
+
+class PermissionRead(PermissionBase, ORMModel):
+    id: int
+    role_id: int
+    created_at: datetime
+
+
+class RoleBase(BaseModel):
+    name: str
+    description: str = ""
+
+
+class RoleCreate(RoleBase):
+    pass
+
+
+class RoleRead(RoleBase, ORMModel):
+    id: int
+    created_at: datetime
+    permissions: list[PermissionRead] = []
+
+
+class UserBase(BaseModel):
+    username: str
+    email: str
+    full_name: str = ""
+    role_id: int
+    is_active: bool = True
+
+
+class UserCreate(UserBase):
+    password: str
+
+
+class UserUpdate(BaseModel):
+    full_name: str | None = None
+    email: str | None = None
+    role_id: int | None = None
+    is_active: bool | None = None
+
+
+class UserRead(UserBase, ORMModel):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    role: RoleRead | None = None
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: int
+    username: str
+    role: str
+
+
 class CustomerBase(BaseModel):
     name: str
     phone: str = ""
