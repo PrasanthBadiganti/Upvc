@@ -157,7 +157,7 @@ class QuotationItem(Base):
     style: Mapped[str] = mapped_column(String(160), default="")
     width_mm: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
     height_mm: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
-    sft: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
+    sft: Mapped[Decimal] = mapped_column(Numeric(10, 0), default=0)
     quantity: Mapped[int] = mapped_column(default=1)
     total_sft: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
     rate_per_sft: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)

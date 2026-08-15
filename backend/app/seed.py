@@ -68,6 +68,41 @@ def ensure_chart_of_accounts(db: Session) -> None:
         db.commit()
 
 
+def backfill_sft_rounding(db: Session) -> None:
+    """Fix SFT values: recalculate and round UP to whole numbers.
+
+    Some legacy records have decimal SFT values (e.g. 11.56, 17.34) instead of
+    whole numbers (16, 24). This function recalculates from width/height and
+    ensures SFT is always a whole number rounded UP per UPVC billing practice.
+    """
+    from decimal import Decimal, ROUND_CEILING
+
+    changed = False
+    # Fix quotation items (these have width_mm/height_mm)
+    for item in db.scalars(select(models.QuotationItem)).all():
+        if item.width_mm and item.height_mm:
+            # Recalculate: (width_mm / 304.8) * (height_mm / 304.8), rounded UP
+            raw = (Decimal(item.width_mm) / Decimal("304.8")) * (Decimal(item.height_mm) / Decimal("304.8"))
+            correct_sft = raw.quantize(Decimal("1"), rounding=ROUND_CEILING)
+
+            if Decimal(str(item.sft or 0)) != correct_sft:
+                item.sft = correct_sft
+                # Recalculate total_sft and amount based on correct SFT
+                min_billable = Decimal("0")
+                if item.catalog_item_id:
+                    cat = db.get(models.CatalogItem, item.catalog_item_id)
+                    if cat:
+                        min_billable = Decimal(cat.min_billable_sft or 0)
+
+                billable_sft = max(correct_sft, min_billable)
+                item.total_sft = billable_sft * Decimal(item.quantity)
+                item.amount = item.total_sft * Decimal(item.rate_per_sft or 0)
+                changed = True
+
+    if changed:
+        db.commit()
+
+
 def seed_database(db: Session) -> None:
     ensure_chart_of_accounts(db)
     if db.scalar(select(models.Customer.id).limit(1)) is not None:
@@ -76,6 +111,7 @@ def seed_database(db: Session) -> None:
         backfill_catalog_details(db)
         backfill_line_item_hsn(db)
         backfill_invoice_adjustments(db)
+        backfill_sft_rounding(db)
         return
 
     now = datetime.now().replace(second=0, microsecond=0)

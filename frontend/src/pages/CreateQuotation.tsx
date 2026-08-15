@@ -117,7 +117,10 @@ export default function CreateQuotation() {
 
   const submitNewCustomer = async (e:FormEvent) => {
     e.preventDefault();
-    if(!newCustomer.name) return;
+    if(!newCustomer.name || !newCustomer.state) {
+      alert('Please fill in Name and State');
+      return;
+    }
     setNewCustomerSaving(true);
     try {
       const {data} = await api.post('/customers',{...newCustomer,assigned_to:form.sales_person || undefined,status:'New'});
@@ -206,7 +209,7 @@ export default function CreateQuotation() {
           <Field label="Phone"><Input value={newCustomer.phone} onChange={e=>setNewCustomer({...newCustomer,phone:e.target.value})}/></Field>
           <Field label="Email"><Input type="email" value={newCustomer.email} onChange={e=>setNewCustomer({...newCustomer,email:e.target.value})}/></Field>
           <Field label="GST Number"><Input value={newCustomer.gst_number} onChange={e=>setNewCustomer({...newCustomer,gst_number:e.target.value})}/></Field>
-          <Field label="State"><Select value={newCustomer.state} onChange={e=>setNewCustomer({...newCustomer,state:e.target.value})}><option value="">Select state</option>{INDIAN_STATES.map(s=><option key={s}>{s}</option>)}</Select></Field>
+          <Field label="State" required><Select required value={newCustomer.state} onChange={e=>setNewCustomer({...newCustomer,state:e.target.value})}><option value="">Select state...</option>{INDIAN_STATES.map(s=><option key={s}>{s}</option>)}</Select></Field>
           <Field label="Project / Site"><Input value={newCustomer.project_site} onChange={e=>setNewCustomer({...newCustomer,project_site:e.target.value})}/></Field>
           <Field label="Address"><textarea className="input" value={newCustomer.address} onChange={e=>setNewCustomer({...newCustomer,address:e.target.value})}/></Field>
         </div>

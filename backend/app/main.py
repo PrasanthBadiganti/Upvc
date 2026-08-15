@@ -1053,7 +1053,13 @@ def gstr1(from_date: date = Query(...), to_date: date = Query(...), db: Session 
 
 
 @app.get("/api/gst/gstr1/json")
-def gstr1_json(from_date: date = Query(...), to_date: date = Query(...), db: Session = Depends(get_db)):
+def gstr1_json(from_date: date | None = Query(None), to_date: date | None = Query(None), db: Session = Depends(get_db)):
+    # If dates not provided, use first and last invoice dates
+    if not from_date or not to_date:
+        first_invoice = db.scalar(select(models.Invoice.created_at).order_by(models.Invoice.created_at).limit(1))
+        last_invoice = db.scalar(select(models.Invoice.created_at).order_by(models.Invoice.created_at.desc()).limit(1))
+        from_date = from_date or (first_invoice.date() if first_invoice else date.today())
+        to_date = to_date or (last_invoice.date() if last_invoice else date.today())
     payload = gstr1_offline_json(db, from_date, to_date)
     body = json.dumps(payload, indent=2)
     return StreamingResponse(iter([body]), media_type="application/json", headers={"Content-Disposition": f'attachment; filename="gstr1-{from_date}-to-{to_date}.json"'})

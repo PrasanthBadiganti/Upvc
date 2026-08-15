@@ -118,6 +118,10 @@ export default function Customers() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!form.name || !form.state) {
+      alert('Please fill in all required fields: Name and State');
+      return;
+    }
     const payload = {
       ...form,
       last_interaction: form.last_interaction || null,
@@ -229,7 +233,7 @@ export default function Customers() {
             <Field label="Phone"><Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></Field>
             <Field label="Email"><Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></Field>
             <Field label="GST Number"><Input value={form.gst_number} onChange={e => setForm({ ...form, gst_number: e.target.value })} /></Field>
-            <Field label="State"><Select value={form.state} onChange={e => setForm({ ...form, state: e.target.value })}><option value="">Select state</option>{INDIAN_STATES.map(s => <option key={s}>{s}</option>)}</Select></Field>
+            <Field label="State" required><Select required value={form.state} onChange={e => setForm({ ...form, state: e.target.value })}><option value="">Select state...</option>{INDIAN_STATES.map(s => <option key={s}>{s}</option>)}</Select></Field>
             <Field label="Status"><Select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>{statuses.map(item => <option key={item}>{item}</option>)}</Select></Field>
             <Field label="Project / Site"><Input value={form.project_site} onChange={e => setForm({ ...form, project_site: e.target.value })} /></Field>
             <Field label="Assigned To"><Select value={form.assigned_to} onChange={e => setForm({ ...form, assigned_to: e.target.value })}>{salespeople.map(item => <option key={item}>{item}</option>)}</Select></Field>
