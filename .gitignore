@@ -45,6 +45,49 @@ build-desktop-cache/
 desktop-dist/
 installer/Output/
 
+# Backup and restore database files (only during development)
+backend/backups/
+backend/data/
+*.db.bak
+
+# PyInstaller build artifacts
+backend/_internal/
+backend/backend/
+*.egg-info/
+*.egg
+dist-old/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
 # Tooling caches
 .cache/
 .parcel-cache/
+
+# Archive folder (old/deprecated code)
+_archive/
+_old/
+deprecated/
+
+# Temporary test files
+*.tmp
+*.temp
+test-data/
+temp/
+
+# Build artifacts
+*.pyc
+*.pyo
+*.so
+*.o
+*.a
+
+# Pre-release spec files
+UPVC_Pro_old.spec
+UPVC_Pro_*.spec
+!UPVC_Pro.spec

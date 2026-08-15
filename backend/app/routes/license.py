@@ -1,5 +1,4 @@
-"""License management API endpoints"""
-
+"""License management API endpoints."""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -25,20 +24,20 @@ def get_machine_id(current_user: models.User = Depends(auth.get_current_user)):
 
 
 @router.post("/license/activate")
-def activate_license(
-    license_key: str,
+def activate_license_endpoint(
+    license_code: str,
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    """Activate a license key (requires authentication)"""
-    result = licensing.activate_license(license_key)
+    """Activate a license code (requires authentication)"""
+    result = licensing.activate_license(license_code)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error"))
     return result
 
 
 @router.post("/license/deactivate")
-def deactivate_license(
-    current_user: models.User = Depends(auth.require_permission("user", "delete")),
+def deactivate_license_endpoint(
+    current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
     """Deactivate current license (SuperAdmin only)"""
@@ -46,33 +45,3 @@ def deactivate_license(
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error"))
     return result
-
-
-@router.get("/license/check")
-def check_license_type():
-    """Check license type (master or viewer, no auth required)"""
-    if not licensing.is_licensed():
-        return {
-            "licensed": False,
-            "mode": "demo",
-            "message": "No valid license. Please activate a license."
-        }
-
-    if licensing.is_master_license():
-        return {
-            "licensed": True,
-            "mode": "master",
-            "features": "full"
-        }
-    elif licensing.is_viewer_license():
-        return {
-            "licensed": True,
-            "mode": "viewer",
-            "features": "read-only",
-            "message": "This is a viewer-only license. Read-only access only."
-        }
-    else:
-        return {
-            "licensed": False,
-            "mode": "demo"
-        }

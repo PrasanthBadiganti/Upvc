@@ -1,7 +1,10 @@
 """Role-Based Access Control (RBAC) utilities"""
 
 from sqlalchemy.orm import Session
+from fastapi import Depends, HTTPException, status
 from . import models, schemas
+from .database import get_db
+from .auth import get_current_user
 from typing import Optional
 
 
@@ -160,3 +163,15 @@ def is_admin_or_above(db: Session, user_id: int) -> bool:
     """Check if user is Admin or SuperAdmin"""
     role = get_user_role(db, user_id)
     return role in ["Admin", "SuperAdmin"]
+
+
+def require_permission(resource: str, action: str):
+    """Dependency for checking user permissions. Usage: @require_permission("users", "read")"""
+    async def check(current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+        if not check_permission(db, current_user.id, resource, action):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Permission denied for {action} on {resource}"
+            )
+        return current_user
+    return check

@@ -1,75 +1,75 @@
 #!/usr/bin/env python
 """
-License Key Generator for UPVC Pro
+License Key Generator for UPVC Pro (BROMS-style short codes).
 
-This script should only be run by authorized administrators.
-It generates license keys that are tied to specific machine IDs.
+Generates short 16-character HMAC-based license codes bound to machine IDs.
 
 Usage:
-    python generate_license.py
+    python generate_license_v2.py
 
 The script will prompt for:
-    - License type (master or viewer)
+    - License type (Master or Viewer)
     - Machine ID
-    - Validity period in days
-    - Output file path
+    - Validity period (days, or perpetual)
+    - Output file path (optional)
+
+Example:
+    License Type: Master
+    Machine ID: XXXX-XXXX-XXXX-XXXX-XXXX
+    Days valid: 365
+
+    Generated Code: ZGCQ-R2BA-LCWS-HSJ3  (16 chars, easy to email/call)
 """
 
 import base64
-import json
+import hashlib
+import hmac
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 
-def generate_license_key(machine_id: str, license_type: str, days: int = 365) -> tuple:
-    """
-    Generate a license key
+# IMPORTANT: This secret MUST match the one embedded in app/licensing_v2.py
+# Generate once with: python tools/gen_secret.py
+LICENSE_SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+
+def compute_code(machine_id: str, license_type: str, period_days: int = 0) -> str:
+    """Compute HMAC-based license code.
 
     Args:
-        machine_id: The machine ID to generate license for
-        license_type: 'master' or 'viewer'
-        days: Validity period in days
+        machine_id: Target machine ID (XXXX-XXXX-XXXX-XXXX-XXXX format)
+        license_type: "MASTER" or "VIEWER"
+        period_days: 0 for perpetual, or days for time-limited
 
     Returns:
-        Tuple of (license_key, license_data)
+        16-character code formatted as XXXX-XXXX-XXXX-XXXX
     """
-    import hashlib
-
-    if license_type not in ["master", "viewer"]:
-        raise ValueError("License type must be 'master' or 'viewer'")
-
-    # Generate expiry date
-    expiry_date = (datetime.now() + timedelta(days=days)).isoformat()
+    # Normalize machine ID (remove dashes)
+    mid_clean = machine_id.replace("-", "").upper()
 
     # Create signature data
-    signature_data = f"{machine_id}:{license_type}:{expiry_date}"
+    if period_days == 0:
+        data = f"{mid_clean}|{license_type}"  # Perpetual
+    else:
+        data = f"{mid_clean}|{license_type}|{period_days}"  # Time-limited
 
-    # Generate license key hash
-    license_hash = hashlib.sha256(signature_data.encode()).hexdigest().upper()[:32]
+    # Compute HMAC-SHA256
+    secret_bytes = bytes.fromhex(LICENSE_SECRET)
+    mac = hmac.new(secret_bytes, data.encode("utf-8"), hashlib.sha256).digest()
 
-    # Create license data
-    license_data = {
-        "license_key": license_hash,
-        "machine_id": machine_id,
-        "license_type": license_type,
-        "expiry_date": expiry_date,
-        "days": days,
-        "generated_at": datetime.now().isoformat()
-    }
+    # Encode to base32 (10 bytes → 16 chars, no padding)
+    raw = base64.b32encode(mac[:10]).decode("ascii")
 
-    # Encode to base64
-    license_json = json.dumps(license_data)
-    license_key = base64.b64encode(license_json.encode()).decode()
-
-    return license_key, license_data
+    # Format as XXXX-XXXX-XXXX-XXXX
+    return "-".join(raw[i : i + 4] for i in range(0, 16, 4))
 
 
 def main():
-    """Main function"""
-    print("=" * 60)
-    print("UPVC Pro License Key Generator")
-    print("=" * 60)
+    """Main generator."""
+    print("=" * 70)
+    print("UPVC Pro License Key Generator (BROMS-style)")
+    print("=" * 70)
     print()
 
     try:
@@ -80,16 +80,18 @@ def main():
         choice = input("\nEnter choice (1 or 2): ").strip()
 
         if choice == "1":
-            license_type = "master"
+            license_type = "MASTER"
+            mode_name = "Master"
         elif choice == "2":
-            license_type = "viewer"
+            license_type = "VIEWER"
+            mode_name = "Viewer"
         else:
             print("Invalid choice!")
             return
 
         # Get machine ID
         print("\nEnter Machine ID:")
-        print("(You can find this by running the app and checking Settings > License)")
+        print("(Copy from target machine: Settings → License → Machine ID)")
         machine_id = input("Machine ID: ").strip()
 
         if not machine_id:
@@ -98,69 +100,91 @@ def main():
 
         # Get validity period
         print("\nValidity Period:")
-        days_input = input("Days valid (default: 365): ").strip()
-        days = int(days_input) if days_input else 365
+        print("  (Leave blank for perpetual license that never expires)")
+        days_input = input("Days valid (or press Enter for perpetual): ").strip()
 
-        if days < 1:
-            print("Days must be at least 1!")
-            return
+        if days_input:
+            try:
+                period_days = int(days_input)
+                if period_days < 1:
+                    print("Days must be at least 1!")
+                    return
+            except ValueError:
+                print("Invalid number!")
+                return
+        else:
+            period_days = 0
 
-        # Generate license
-        print("\nGenerating license key...")
-        license_key, license_data = generate_license_key(machine_id, license_type, days)
+        # Generate code
+        print("\nGenerating license code...")
+        code = compute_code(machine_id, license_type, period_days)
 
         # Display results
-        print("\n" + "=" * 60)
+        print("\n" + "=" * 70)
         print("LICENSE GENERATED SUCCESSFULLY")
-        print("=" * 60)
+        print("=" * 70)
         print()
-        print(f"License Type:  {license_type.upper()}")
-        print(f"Machine ID:    {machine_id}")
-        print(f"Valid Days:    {days}")
-        print(f"Expiry Date:   {license_data['expiry_date']}")
+        print(f"License Type:   {mode_name}")
+        print(f"Machine ID:     {machine_id}")
+
+        if period_days == 0:
+            print(f"Validity:       Perpetual (never expires)")
+        else:
+            expiry = datetime.now() + timedelta(days=period_days)
+            print(f"Validity:       {period_days} days (expires ~{expiry.strftime('%Y-%m-%d')})")
+            print("                (Actual expiry: {period_days} days after activation)")
+
         print()
-        print("-" * 60)
-        print("LICENSE KEY (Copy this entire string):")
-        print("-" * 60)
-        print(license_key)
-        print("-" * 60)
+        print("-" * 70)
+        print("LICENSE CODE (Copy this 16-character code):")
+        print("-" * 70)
+        print(code)
+        print("-" * 70)
         print()
 
         # Save to file option
         save_choice = input("Save to file? (y/n): ").strip().lower()
         if save_choice == "y":
-            filename = f"license_{machine_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            filename = f"license_{machine_id.replace('-', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
             output_path = Path(filename)
 
             with open(output_path, "w") as f:
-                f.write("UPVC Pro License Key\n")
-                f.write("=" * 60 + "\n\n")
-                f.write(f"License Type:  {license_type.upper()}\n")
-                f.write(f"Machine ID:    {machine_id}\n")
-                f.write(f"Valid Days:    {days}\n")
-                f.write(f"Expiry Date:   {license_data['expiry_date']}\n")
-                f.write(f"Generated At:  {license_data['generated_at']}\n\n")
-                f.write("-" * 60 + "\n")
-                f.write("LICENSE KEY (Paste this in UPVC Pro):\n")
-                f.write("-" * 60 + "\n")
-                f.write(license_key + "\n\n")
-                f.write("Instructions:\n")
+                f.write("UPVC Pro License Code\n")
+                f.write("=" * 70 + "\n\n")
+                f.write(f"License Type:   {mode_name}\n")
+                f.write(f"Machine ID:     {machine_id}\n")
+
+                if period_days == 0:
+                    f.write(f"Validity:       Perpetual (never expires)\n")
+                else:
+                    expiry = datetime.now() + timedelta(days=period_days)
+                    f.write(f"Validity:       {period_days} days (expires ~{expiry.strftime('%Y-%m-%d')})\n")
+                    f.write(f"Note:           Actual expiry is {period_days} days after the user activates\n")
+
+                f.write(f"\nGenerated:      {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                f.write("-" * 70 + "\n")
+                f.write("LICENSE CODE (Give this to the user):\n")
+                f.write("-" * 70 + "\n")
+                f.write(code + "\n\n")
+                f.write("INSTRUCTIONS FOR USER:\n")
                 f.write("1. Open UPVC Pro\n")
-                f.write("2. Go to Settings > License\n")
-                f.write("3. Paste the license key above\n")
-                f.write("4. Click 'Activate License'\n")
+                f.write("2. Go to Settings → License\n")
+                f.write("3. Click 'Activate License'\n")
+                f.write("4. Paste or type the code: " + code + "\n")
+                f.write("5. Click 'Activate'\n\n")
+                f.write("Note: Dashes, spaces, and case are ignored when entering the code.\n")
 
             print(f"License saved to: {output_path}")
 
-        print("\nInstructions to activate:")
+        print("\nInstructions to send to user:")
         print("1. Open UPVC Pro application")
-        print("2. Go to Settings > License")
-        print("3. Paste the license key above")
-        print("4. Click 'Activate License'")
+        print("2. Go to Settings → License")
+        print("3. Click 'Activate License'")
+        print(f"4. Enter this code: {code}")
+        print("5. Click 'Activate'")
+        print()
+        print("Note: Dashes, spaces, and case don't matter when typing the code.")
 
-    except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
     except KeyboardInterrupt:
         print("\n\nCancelled.")
         sys.exit(0)

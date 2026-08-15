@@ -32,6 +32,7 @@ from .tally_export import build_tally_masters_xml, build_tally_vouchers_xml
 from .routes import auth as auth_routes
 from .routes import backup as backup_routes
 from .routes import license as license_routes
+from .routes import viewer as viewer_routes
 
 app = FastAPI(title="UPVC Pro API", version="1.0.0")
 app.add_middleware(
@@ -42,10 +43,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include auth, backup, and license routes
+# Include auth, backup, license, and viewer routes
 app.include_router(auth_routes.router)
 app.include_router(backup_routes.router)
 app.include_router(license_routes.router)
+app.include_router(viewer_routes.router)
 
 
 def seed_default_users(db: Session) -> None:
