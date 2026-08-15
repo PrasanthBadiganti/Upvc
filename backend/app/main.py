@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from . import models, schemas
 from .auth import hash_password
+from .backup_scheduler import get_scheduler
 from .database import Base, DEFAULT_DB_PATH, SessionLocal, engine, get_db
 from .gst_reports import ap_aging_report, balance_sheet_report, cash_flow_statement, gstr1_offline_json, gstr1_report, gstr3b_report, hsn_summary_report, profit_and_loss_report, purchase_register, sales_register
 from .opening_balances import commit_opening_balances, preview_opening_balances
@@ -29,6 +30,7 @@ from .seed import seed_database
 from .services import cancel_credit_note, cancel_debit_note, cancel_invoice, cancel_purchase_bill, close_financial_year, convert_quotation_to_invoice, create_expense, create_financial_year, create_fixed_asset, create_manual_journal_entry, create_purchase_bill, create_quotation, create_stock_item, delete_expense, dispose_fixed_asset, duplicate_quotation, get_account_ledger, get_credit_note, get_debit_note, get_expense, get_financial_year, get_fixed_asset, get_invoice, get_journal_entry, get_payment, get_purchase_bill, get_quotation, get_stock_item, get_trial_balance, issue_credit_note, issue_debit_note, list_chart_of_accounts, list_financial_years, list_fixed_assets, list_journal_entries, list_stock_items, money, next_code, record_depreciation, record_payment, record_stock_movement, record_vendor_payment, reopen_financial_year, reopen_invoice, reopen_purchase_bill, reverse_manual_journal_entry, update_expense, update_quotation, update_stock_item
 from .tally_export import build_tally_masters_xml, build_tally_vouchers_xml
 from .routes import auth as auth_routes
+from .routes import backup as backup_routes
 
 app = FastAPI(title="UPVC Pro API", version="1.0.0")
 app.add_middleware(
@@ -39,8 +41,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include auth routes
+# Include auth and backup routes
 app.include_router(auth_routes.router)
+app.include_router(backup_routes.router)
 
 
 def seed_default_users(db: Session) -> None:
@@ -108,6 +111,16 @@ def startup() -> None:
         # Initialize RBAC
         initialize_roles_and_permissions(db)
         seed_default_users(db)
+    # Start backup scheduler
+    scheduler = get_scheduler()
+    scheduler.start()
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    # Stop backup scheduler
+    scheduler = get_scheduler()
+    scheduler.stop()
 
 
 def ensure_schema() -> None:
