@@ -453,6 +453,44 @@ def update_pricing_rules(payload: schemas.PricingRulePayload, db: Session = Depe
     return rule
 
 
+@app.get("/api/rate-cards", response_model=list[schemas.RateCardRead])
+def list_rate_cards(catalog_item_id: int | None = None, db: Session = Depends(get_db)):
+    query = db.query(models.RateCard)
+    if catalog_item_id:
+        query = query.filter(models.RateCard.catalog_item_id == catalog_item_id)
+    return query.all()
+
+
+@app.post("/api/rate-cards", response_model=schemas.RateCardRead, status_code=201)
+def add_rate_card(payload: schemas.RateCardPayload, db: Session = Depends(get_db)):
+    card = models.RateCard(**payload.model_dump())
+    db.add(card)
+    db.commit()
+    db.refresh(card)
+    return card
+
+
+@app.put("/api/rate-cards/{card_id}", response_model=schemas.RateCardRead)
+def update_rate_card(card_id: int, payload: schemas.RateCardPayload, db: Session = Depends(get_db)):
+    card = db.get(models.RateCard, card_id)
+    if not card:
+        raise HTTPException(404, "Rate card not found")
+    for key, value in payload.model_dump().items():
+        setattr(card, key, value)
+    db.commit()
+    db.refresh(card)
+    return card
+
+
+@app.delete("/api/rate-cards/{card_id}", status_code=204)
+def delete_rate_card(card_id: int, db: Session = Depends(get_db)):
+    card = db.get(models.RateCard, card_id)
+    if not card:
+        raise HTTPException(404, "Rate card not found")
+    db.delete(card)
+    db.commit()
+
+
 @app.get("/api/business-settings", response_model=schemas.BusinessSettingsRead)
 def get_business_settings(db: Session = Depends(get_db)):
     return get_or_create_business_settings(db)

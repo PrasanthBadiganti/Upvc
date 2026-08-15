@@ -467,6 +467,17 @@ export type PricingRule = {
   discount_above_300: number | string;
 };
 
+export type RateCard = {
+  id: number;
+  catalog_item_id: number;
+  min_sft: number | string;
+  max_sft: number | string;
+  rate_per_sft: number | string;
+  discount_percent: number | string;
+  status: string;
+  created_at: string;
+};
+
 export type BusinessSettings = {
   id: number;
   company_name: string;

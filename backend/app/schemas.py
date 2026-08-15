@@ -87,6 +87,20 @@ class PricingRuleRead(PricingRulePayload, ORMModel):
     id: int
 
 
+class RateCardPayload(BaseModel):
+    min_sft: Decimal
+    max_sft: Decimal
+    rate_per_sft: Decimal
+    discount_percent: Decimal = Decimal("0")
+    status: str = "Active"
+
+
+class RateCardRead(RateCardPayload, ORMModel):
+    id: int
+    catalog_item_id: int
+    created_at: datetime
+
+
 class BusinessSettingsPayload(BaseModel):
     company_name: str = "Crystal Frames Studio"
     tagline: str = "Premium UPVC Windows, Doors and Glass Solutions"

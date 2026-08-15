@@ -136,14 +136,16 @@ export default function Customers() {
   return (
     <>
       <PageHeader title="Customers" subtitle="Lead and customer management" />
-      <div className="metric-grid customers-metrics">
-        <MetricCard label="New Enquiries" value={counts.new} change="Current list" icon={UserPlus2} tone="blue" />
-        <MetricCard label="Live Customers" value={counts.live} change="Live + completed" icon={UsersRound} tone="teal" />
-        <MetricCard label="Pending Quotations" value={counts.pending} change="Sent + negotiation" icon={FileText} tone="amber" />
-        <MetricCard label="Follow-ups Due" value={counts.due} change="Scheduled follow-ups" icon={BellRing} tone="red" />
-      </div>
+      <div className="customers-main-layout">
+        <div className="customers-left-panel">
+          <div className="metric-grid customers-metrics">
+            <MetricCard label="New Enquiries" value={counts.new} change="Current list" icon={UserPlus2} tone="blue" />
+            <MetricCard label="Live Customers" value={counts.live} change="Live + completed" icon={UsersRound} tone="teal" />
+            <MetricCard label="Pending Quotations" value={counts.pending} change="Sent + negotiation" icon={FileText} tone="amber" />
+            <MetricCard label="Follow-ups Due" value={counts.due} change="Scheduled follow-ups" icon={BellRing} tone="red" />
+          </div>
 
-      <div className="customers-layout">
+          <div className="customers-layout">
         <Card className="customer-table-card">
           <div className="filters">
             <div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search customers by name, phone, email..." /></div>
@@ -154,24 +156,21 @@ export default function Customers() {
           </div>
 
           {loading ? <Loading /> : (
-            <div className="table-wrap"><table className="data-table"><thead><tr><th>Customer</th><th>Contact</th><th>Project / Site</th><th>Status</th><th>Last Interaction</th><th>Next Follow-up</th><th>Quote Value</th><th>Pending Payment</th><th>Assigned To</th><th>Actions</th></tr></thead><tbody>
+            <div className="table-wrap"><table className="data-table"><thead><tr><th>Customer</th><th>Contact</th><th>Status</th><th>Assigned To</th><th style={{textAlign:'center'}}>Actions</th></tr></thead><tbody>
               {visibleCustomers.map(customer => <tr key={customer.id} className={selected?.id === customer.id ? 'selected-row' : ''} onClick={() => setSelected(customer)}>
                 <td><span className="cell-title">{customer.name}</span><span className="cell-sub">{customer.code}</span></td>
                 <td><span>{customer.phone}</span><span className="cell-sub">{customer.email}</span></td>
-                <td>{customer.project_site}</td>
                 <td><Status value={customer.status} /></td>
-                <td>{shortDate(customer.last_interaction)}<span className="cell-sub">{shortTime(customer.last_interaction)}</span></td>
-                <td style={{ color: '#1561ec' }}>{shortDate(customer.next_followup)}<span className="cell-sub" style={{ color: '#1561ec' }}>{shortTime(customer.next_followup)}</span></td>
-                <td className="amount">{currency(customer.quote_value)}</td>
-                <td className={`amount ${Number(customer.pending_payment) > 0 ? 'danger' : 'success'}`}>{currency(customer.pending_payment)}</td>
                 <td>{customer.assigned_to}</td>
-                <td><div className="action-group"><button className="mini-button" onClick={e => { e.stopPropagation(); setSelected(customer); }}><Eye size={14} /></button><button className="mini-button" onClick={e => { e.stopPropagation(); showEdit(customer); }}><MoreVertical size={14} /></button></div></td>
+                <td style={{textAlign:'center'}}><div className="action-group"><button className="mini-button" onClick={e => { e.stopPropagation(); showEdit(customer); }}><MoreVertical size={14} /></button></div></td>
               </tr>)}
-              {!visibleCustomers.length && <tr><td colSpan={10} className="muted">No customers found</td></tr>}
+              {!visibleCustomers.length && <tr><td colSpan={5} className="muted">No customers found</td></tr>}
             </tbody></table></div>
           )}
           <div className="pagination"><span>Showing {visibleCustomers.length ? 1 : 0} to {visibleCustomers.length} of {visibleCustomers.length} customers</span><div className="pagination-controls"><button className="page-chip active">1</button></div><Select style={{ width: 95 }}><option>10 / page</option></Select></div>
         </Card>
+          </div>
+        </div>
 
         <Card className="customer-details">
           {activeCustomer ? (

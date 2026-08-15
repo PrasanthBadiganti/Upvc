@@ -82,6 +82,19 @@ class PricingRule(Base):
     discount_above_300: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=6)
 
 
+class RateCard(Base):
+    __tablename__ = "rate_cards"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    catalog_item_id: Mapped[int] = mapped_column(ForeignKey("catalog_items.id"), index=True)
+    min_sft: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
+    max_sft: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=100)
+    rate_per_sft: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    discount_percent: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=0)
+    status: Mapped[str] = mapped_column(String(30), default="Active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class BankAccount(Base):
     __tablename__ = "bank_accounts"
 
