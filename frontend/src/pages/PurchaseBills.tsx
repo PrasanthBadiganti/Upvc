@@ -13,10 +13,34 @@ export default function PurchaseBills(){
   const cancel=async(b:PurchaseBill)=>{const paid=b.status==='Paid';if(!window.confirm(paid?'This purchase bill is fully paid. Cancel it anyway?':'Cancel this purchase bill?'))return;await api.post(`/purchase-bills/${b.id}/cancel`,null,{params:{force:paid}});load();};
   const reopen=async(b:PurchaseBill)=>{await api.post(`/purchase-bills/${b.id}/reopen`);load();};
   const filtered=rows.filter(b=>`${b.number} ${b.vendor_bill_number} ${b.vendor.name}`.toLowerCase().includes(search.toLowerCase()));
+  const metrics = {
+    totalValue: rows.reduce((s,b)=>s+Number(b.grand_total||0),0),
+    totalPaid: rows.reduce((s,b)=>s+Number(b.paid_amount||0),0),
+    totalPending: rows.reduce((s,b)=>s+Number(b.pending_balance||0),0),
+    count: rows.length,
+  };
   return <>
     <PageHeader title="Purchase Bills" subtitle="Track what you owe vendors for stock and supplies" action={<Button onClick={()=>navigate('/purchase-bills/new')}><Plus size={15}/> New Purchase Bill</Button>} />
+    <div className="metric-grid" style={{gridTemplateColumns:'repeat(4, minmax(0, 1fr))',gap:10,marginBottom:12}}>
+      <Card style={{padding:15}}>
+        <small style={{color:'#60708a',fontSize:'12px'}}>Total Value</small>
+        <b style={{fontSize:18,display:'block',marginTop:6}}>{currency(metrics.totalValue,2)}</b>
+      </Card>
+      <Card style={{padding:15}}>
+        <small style={{color:'#60708a',fontSize:'12px'}}>Total Paid</small>
+        <b style={{fontSize:18,display:'block',marginTop:6,color:'#0eaf72'}}>{currency(metrics.totalPaid,2)}</b>
+      </Card>
+      <Card style={{padding:15}}>
+        <small style={{color:'#60708a',fontSize:'12px'}}>Total Payable</small>
+        <b style={{fontSize:18,display:'block',marginTop:6,color:'#ef4444'}}>{currency(metrics.totalPending,2)}</b>
+      </Card>
+      <Card style={{padding:15}}>
+        <small style={{color:'#60708a',fontSize:'12px'}}>Total Bills</small>
+        <b style={{fontSize:18,display:'block',marginTop:6}}>{metrics.count}</b>
+      </Card>
+    </div>
     <div className="list-toolbar"><div className="search-box"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search purchase bill, vendor or vendor bill no..."/></div><Button tone="secondary" onClick={load}><RefreshCw size={15}/> Refresh</Button></div>
-    <Card className="list-card">{loading?<Loading/>:<div className="table-wrap"><table className="data-table"><thead><tr><th>PB No.</th><th>Vendor</th><th>Vendor Bill No.</th><th>Bill Date</th><th>Due Date</th><th>Grand Total</th><th>Paid</th><th>Pending</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filtered.map(b=><tr key={b.id}><td className="cell-title">{b.number}</td><td>{b.vendor.name}<span className="cell-sub">{b.vendor.gst_number || '--'}</span></td><td>{b.vendor_bill_number || '--'}</td><td>{shortDate(b.bill_date)}</td><td>{shortDate(b.due_date)}</td><td className="amount"><b>{currency(b.grand_total,2)}</b></td><td className="amount success">{currency(b.paid_amount,2)}</td><td className="amount danger">{currency(b.pending_balance,2)}</td><td><Status value={b.status}/></td><td><div className="action-group"><button className="mini-button" title="View" onClick={()=>navigate(`/purchase-bills/${b.id}`)}><Eye size={14}/></button>{b.status==='Cancelled'?<button className="mini-button" title="Reopen" onClick={()=>reopen(b)}><RotateCcw size={14}/></button>:<button className="mini-button" title="Cancel" onClick={()=>cancel(b)}><Ban size={14}/></button>}</div></td></tr>)}
+    <Card className="list-card">{loading?<Loading/>:<div className="table-wrap"><table className="data-table"><thead><tr><th>PB No.</th><th>Vendor</th><th>Vendor Bill No.</th><th>Bill Date</th><th>Due Date</th><th>Grand Total</th><th>Paid</th><th>Pending</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filtered.map(b=><tr key={b.id}><td className="cell-title">{b.number}</td><td>{b.vendor.name}<span className="cell-sub">{b.vendor.gst_number || '--'}</span></td><td>{b.vendor_bill_number || '--'}</td><td>{shortDate(b.bill_date)}</td><td>{shortDate(b.due_date)}</td><td className="amount"><b>{currency(b.grand_total,2)}</b></td><td className="amount success">{currency(b.paid_amount,2)}</td><td className="amount danger">{currency(b.pending_balance,2)}</td><td><Status value={b.status}/></td><td><div className="action-group"><button className="mini-button" title="View details" onClick={()=>navigate(`/purchase-bills/${b.id}`)}><Eye size={14}/></button>{b.status==='Cancelled'?<button className="mini-button" title="Reopen" onClick={()=>reopen(b)}><RotateCcw size={14}/></button>:<button className="mini-button" title="Cancel" onClick={()=>cancel(b)}><Ban size={14}/></button>}</div></td></tr>)}
     {!filtered.length && <tr><td colSpan={10} className="muted">No purchase bills found</td></tr>}
     </tbody></table></div>}</Card>
   </>;

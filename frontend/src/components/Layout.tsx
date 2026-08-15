@@ -181,8 +181,14 @@ export default function Layout() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark"><span /><span /></div>
-          <div><strong>UPVC Pro</strong><small>Windows. Doors. Trust.</small></div>
+          {business?.logo_path ? (
+            <img src={`${business.logo_path}?v=${encodeURIComponent(business.updated_at)}`} alt="Business logo" className="brand-logo" />
+          ) : (
+            <>
+              <div className="brand-mark"><span /><span /></div>
+              <div><strong>{business?.logo_text || 'UPVC'}</strong></div>
+            </>
+          )}
         </div>
         <nav className="sidebar-nav">
           {navGroups.map(group => {
