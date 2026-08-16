@@ -88,6 +88,11 @@ export type Quotation = {
   advance: number | string;
   balance: number | string;
   notes: string;
+  warranty_manufacturing_years?: number;
+  warranty_hardware_years?: number;
+  delivery_weeks?: number;
+  installation_notes?: string;
+  quotation_terms?: string;
   created_at: string;
   items: QuotationItem[];
   customer: Customer;

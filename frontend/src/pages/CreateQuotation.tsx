@@ -33,6 +33,12 @@ export default function CreateQuotation() {
   const [expandedRow,setExpandedRow] = useState<number | null>(null);
   const [specModalOpen,setSpecModalOpen] = useState(false);
   const [specModalIndex,setSpecModalIndex] = useState<number | null>(null);
+  const [proModalOpen,setProModalOpen] = useState(false);
+  const [warranty_manufacturing_years,setWarrantyMfg] = useState(20);
+  const [warranty_hardware_years,setWarrantyHw] = useState(5);
+  const [delivery_weeks,setDeliveryWeeks] = useState(3);
+  const [installation_notes,setInstallationNotes] = useState('');
+  const [quotation_terms,setQuotationTerms] = useState('');
 
   useKeyboardShortcut([
     { ...SHORTCUTS.SAVE, onPress: () => save(false), disabled: saving },
@@ -51,6 +57,11 @@ export default function CreateQuotation() {
       setTransport(Number(data.transport));
       setDiscount(Number(data.discount));
       setForm({quotation_date:data.quotation_date,validity_days:data.validity_days,sales_person:data.sales_person,site_location:data.site_location,address:data.address,notes:data.notes});
+      setWarrantyMfg(data.warranty_manufacturing_years || 20);
+      setWarrantyHw(data.warranty_hardware_years || 5);
+      setDeliveryWeeks(data.delivery_weeks || 3);
+      setInstallationNotes(data.installation_notes || '');
+      setQuotationTerms(data.quotation_terms || '');
       setItems(data.items.map((item:QuotationItem)=>({
         ...item,
         catalog_item_id:item.catalog_item_id || null,
@@ -123,7 +134,7 @@ export default function CreateQuotation() {
     setSaving(true);
     try {
       const selected=customers.find(c=>c.id===customerId);
-      const payload={customer_id:customerId,...form,status:send?'Sent':status,transport,discount,items,address:form.address || selected?.address || ''};
+      const payload={customer_id:customerId,...form,status:send?'Sent':status,transport,discount,items,address:form.address || selected?.address || '',warranty_manufacturing_years,warranty_hardware_years,delivery_weeks,installation_notes,quotation_terms};
       const {data}=isEditing ? await api.put(`/quotations/${quoteId}`,payload) : await api.post('/quotations',payload);
       toast.success(send ? `Quotation sent to ${selected?.name}!` : 'Quotation saved as draft');
       navigate(isEditing ? `/quotations/${data.id}` : '/quotations',{state:{created:data.number}});
@@ -224,6 +235,44 @@ export default function CreateQuotation() {
         </Card>
 
         <Card className="quote-notes"><small>Notes / Special Instructions (Optional)</small><textarea className="input" placeholder="Add any notes or special instructions..." value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></Card>
+
+        <Card>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:15}}>
+            <h3>Professional Quotation Settings</h3>
+            <button type="button" onClick={()=>setProModalOpen(!proModalOpen)} style={{background:'none',border:'none',cursor:'pointer',color:'#2468f2',fontSize:'14px',fontWeight:600}}>
+              {proModalOpen ? 'Hide' : 'Configure'}
+            </button>
+          </div>
+          {proModalOpen && (
+            <div className="form-grid" style={{gap:15}}>
+              <div>
+                <Field label="Manufacturing Warranty (Years)">
+                  <Input type="number" min="1" value={warranty_manufacturing_years} onChange={e=>setWarrantyMfg(Number(e.target.value))} placeholder="e.g., 20"/>
+                </Field>
+              </div>
+              <div>
+                <Field label="Hardware Warranty (Years)">
+                  <Input type="number" min="1" value={warranty_hardware_years} onChange={e=>setWarrantyHw(Number(e.target.value))} placeholder="e.g., 5"/>
+                </Field>
+              </div>
+              <div>
+                <Field label="Delivery Timeline (Weeks)">
+                  <Input type="number" min="1" value={delivery_weeks} onChange={e=>setDeliveryWeeks(Number(e.target.value))} placeholder="e.g., 3"/>
+                </Field>
+              </div>
+              <div style={{gridColumn:'span 3'}}>
+                <Field label="Installation Notes">
+                  <textarea className="input" placeholder="e.g., Gap filling upto 3mm..." value={installation_notes} onChange={e=>setInstallationNotes(e.target.value)} style={{minHeight:'100px'}}/>
+                </Field>
+              </div>
+              <div style={{gridColumn:'span 3'}}>
+                <Field label="Quotation Terms & Conditions">
+                  <textarea className="input" placeholder="Payment terms, warranty details, etc..." value={quotation_terms} onChange={e=>setQuotationTerms(e.target.value)} style={{minHeight:'120px'}}/>
+                </Field>
+              </div>
+            </div>
+          )}
+        </Card>
       </div>
 
       <aside>
