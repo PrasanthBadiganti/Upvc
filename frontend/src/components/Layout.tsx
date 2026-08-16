@@ -40,7 +40,7 @@ const navGroups = [
   { key: 'top', label: null, items: [
     ['Dashboard', '/', LayoutDashboard],
   ] },
-  { key: 'sales', label: 'Sales & CRM', items: [
+  { key: 'sales', label: 'Sales', items: [
     ['Customers', '/customers', UsersRound],
     ['Quotations', '/quotations', FileText],
     ['Invoices', '/invoices', ReceiptText],
@@ -48,9 +48,9 @@ const navGroups = [
     ['Debit Notes', '/debit-notes', FilePlus2],
     ['Payments', '/payments', HandCoins],
     ['Follow-ups', '/followups', Bell],
-    ['Catalog', '/catalog', Boxes],
   ] },
-  { key: 'purchasing', label: 'Purchasing & Inventory', items: [
+  { key: 'products', label: 'Products & Purchasing', items: [
+    ['Catalog', '/catalog', Boxes],
     ['Vendors', '/vendors', Truck],
     ['Purchase Bills', '/purchase-bills', ClipboardList],
     ['Expenses', '/expenses', Receipt],
@@ -64,7 +64,7 @@ const navGroups = [
     ['Fixed Assets', '/fixed-assets', Building2],
     ['Financial Years', '/financial-years', CalendarClock],
   ] },
-  { key: 'reports', label: 'Reports & Filing', items: [
+  { key: 'reports', label: 'Reports', items: [
     ['GST Reports', '/gst-reports', Percent],
     ['Profit & Loss', '/profit-and-loss', ScrollText],
     ['Balance Sheet', '/balance-sheet', Landmark],
@@ -72,7 +72,7 @@ const navGroups = [
     ['AP Aging', '/ap-aging', Clock],
     ['Reports', '/reports', TrendingUp],
   ] },
-  { key: 'data', label: 'Data Tools', items: [
+  { key: 'tools', label: 'Tools', items: [
     ['Tally Export', '/tally-export', FileArchive],
     ['Opening Balances', '/opening-balances', FolderInput],
   ] },
@@ -81,7 +81,7 @@ const navGroups = [
   ] },
 ] as const;
 
-const DEFAULT_EXPANDED_GROUPS = ['sales', 'purchasing'];
+const DEFAULT_EXPANDED_GROUPS = ['sales', 'products'];
 const SIDEBAR_STORAGE_KEY = 'upvc-sidebar-expanded-groups';
 
 function renderNavItem([label, path, Icon]: readonly [string, string, typeof LayoutDashboard]) {
