@@ -323,6 +323,7 @@ class PaymentCreate(BaseModel):
 
 class PaymentRead(PaymentCreate, ORMModel):
     id: int
+    number: str
     invoice_id: int
     created_at: datetime
     bank_account: BankAccountSummaryRead | None = None
@@ -543,6 +544,7 @@ class ExpenseCreate(BaseModel):
 
 class ExpenseRead(ExpenseCreate, ORMModel):
     id: int
+    number: str
     gst_amount: Decimal
     total: Decimal
     created_at: datetime
