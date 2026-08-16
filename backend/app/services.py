@@ -21,10 +21,15 @@ def next_code(db: Session, model: type, prefix: str) -> str:
     return f"{prefix}-{count + 1:04d}"
 
 
-def next_document_number(db: Session, model: type, prefix: str) -> str:
-    year = date.today().year
-    count = db.scalar(select(func.count()).select_from(model)) or 0
-    return f"{prefix}-{year}-{count + 1:03d}"
+def next_sequence_number(db: Session, model: type) -> int:
+    """Get the next auto-incrementing sequence number for a model (never resets)"""
+    max_seq = db.scalar(select(func.max(model.sequence_number))) or 0
+    return max_seq + 1
+
+def format_document_number(prefix: str, sequence_number: int) -> str:
+    """Format document number as PREFIX + YY + SEQUENCE (e.g. QT26-1)"""
+    year = date.today().year % 100  # Last 2 digits of year
+    return f"{prefix}{year}-{sequence_number}"
 
 
 def calculate_sft(width_mm: Decimal, height_mm: Decimal, minimum: Decimal = Decimal("0")) -> Decimal:
@@ -106,7 +111,8 @@ def refresh_customer_quote_value(db: Session, customer_id: int) -> None:
 
 
 def create_quotation(db: Session, payload: QuotationCreate) -> models.Quotation:
-    quote = models.Quotation(number=next_document_number(db, models.Quotation, "QT"), customer_id=payload.customer_id)
+    seq = next_sequence_number(db, models.Quotation)
+    quote = models.Quotation(sequence_number=seq, number=format_document_number("QT", seq), customer_id=payload.customer_id)
     apply_quotation_payload(db, quote, payload)
 
     customer = db.get(models.Customer, payload.customer_id)
@@ -227,8 +233,10 @@ def convert_quotation_to_invoice(db: Session, quotation_id: int) -> models.Invoi
     subtotal = money(quote.subtotal)
     total_gst = money(quote.gst)
     interstate = is_interstate(_business_state(db), quote.customer.state)
+    seq = next_sequence_number(db, models.Invoice)
     invoice = models.Invoice(
-        number=next_document_number(db, models.Invoice, "INV"),
+        sequence_number=seq,
+        number=format_document_number("IV", seq),
         quotation_id=quote.id,
         customer_id=quote.customer_id,
         invoice_date=date.today(),
@@ -285,8 +293,10 @@ def create_opening_balance_invoice(db: Session, customer_id: int, amount: Decima
     if not customer:
         raise ValueError("Customer not found")
     amount = money(amount)
+    seq = next_sequence_number(db, models.Invoice)
     invoice = models.Invoice(
-        number=next_document_number(db, models.Invoice, "OB"),
+        sequence_number=seq,
+        number=format_document_number("OB", seq),
         quotation_id=None,
         customer_id=customer_id,
         invoice_date=as_of,
@@ -329,7 +339,8 @@ def record_payment(db: Session, invoice_id: int, amount: Decimal, **kwargs) -> m
         raise ValueError("Payment amount must be greater than zero")
     if amount > Decimal(invoice.pending_balance):
         raise ValueError("Payment amount cannot exceed pending balance")
-    payment = models.Payment(invoice_id=invoice_id, amount=amount, **kwargs)
+    seq = next_sequence_number(db, models.Payment)
+    payment = models.Payment(sequence_number=seq, number=format_document_number("PAY", seq), invoice_id=invoice_id, amount=amount, **kwargs)
     invoice.paid_amount = money(Decimal(invoice.paid_amount) + amount)
     invoice.pending_balance = money(Decimal(invoice.grand_total) - Decimal(invoice.paid_amount))
     invoice.status = "Paid" if invoice.pending_balance <= 0 else "Partially Paid"
@@ -484,8 +495,10 @@ def post_journal_entry(db: Session, entry_date, narration: str, source_type: str
     total_credit = money(sum((money(credit) for _, _, credit in lines), Decimal("0")))
     if total_debit != total_credit:
         raise ValueError(f"Journal entry for {source_type} #{source_id} is not balanced ({total_debit} debit vs {total_credit} credit)")
+    seq = next_sequence_number(db, models.JournalEntry)
     entry = models.JournalEntry(
-        number=next_document_number(db, models.JournalEntry, "JE"),
+        sequence_number=seq,
+        number=format_document_number("JE", seq),
         entry_date=entry_date,
         narration=narration[:240],
         source_type=source_type,
@@ -592,8 +605,10 @@ def issue_credit_note(db: Session, invoice_id: int, payload: CreditNoteCreate) -
     if grand_total > Decimal(invoice.pending_balance or 0):
         raise ValueError("Credit note total cannot exceed the invoice's pending balance")
 
+    seq = next_sequence_number(db, models.CreditNote)
     credit_note = models.CreditNote(
-        number=next_document_number(db, models.CreditNote, "CN"),
+        sequence_number=seq,
+        number=format_document_number("CN", seq),
         invoice_id=invoice.id,
         customer_id=invoice.customer_id,
         note_date=payload.note_date,
@@ -653,8 +668,10 @@ def issue_debit_note(db: Session, invoice_id: int, payload: DebitNoteCreate) -> 
     if grand_total <= 0:
         raise ValueError("Debit note total must be greater than zero")
 
+    seq = next_sequence_number(db, models.DebitNote)
     debit_note = models.DebitNote(
-        number=next_document_number(db, models.DebitNote, "DN"),
+        sequence_number=seq,
+        number=format_document_number("DN", seq),
         invoice_id=invoice.id,
         customer_id=invoice.customer_id,
         note_date=payload.note_date,
@@ -732,8 +749,10 @@ def create_purchase_bill(db: Session, vendor_id: int, payload: PurchaseBillCreat
             raise ValueError(f"Stock item {payload_item.stock_item_id} not found")
 
     interstate = is_interstate(_business_state(db), vendor.state)
+    seq = next_sequence_number(db, models.PurchaseBill)
     bill = models.PurchaseBill(
-        number=next_document_number(db, models.PurchaseBill, "PB"),
+        sequence_number=seq,
+        number=format_document_number("PB", seq),
         vendor_id=vendor.id,
         vendor_bill_number=payload.vendor_bill_number,
         bill_date=payload.bill_date,
@@ -877,7 +896,8 @@ def _post_expense_journal_entry(db: Session, expense: models.Expense) -> None:
 
 def create_expense(db: Session, payload: ExpenseCreate) -> models.Expense:
     _ensure_period_open(db, payload.expense_date)
-    expense = models.Expense()
+    seq = next_sequence_number(db, models.Expense)
+    expense = models.Expense(sequence_number=seq, number=format_document_number("EX", seq))
     _apply_expense_payload(expense, payload)
     db.add(expense)
     db.flush()

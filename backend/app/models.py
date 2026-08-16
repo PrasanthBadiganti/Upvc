@@ -185,6 +185,7 @@ class Quotation(Base):
     __tablename__ = "quotations"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    sequence_number: Mapped[int] = mapped_column(index=True)
     number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
     quotation_date: Mapped[date] = mapped_column(Date, default=date.today)
@@ -246,6 +247,7 @@ class Invoice(Base):
     __tablename__ = "invoices"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    sequence_number: Mapped[int] = mapped_column(index=True)
     number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
     quotation_id: Mapped[int | None] = mapped_column(ForeignKey("quotations.id"), nullable=True, unique=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
@@ -290,6 +292,7 @@ class CreditNote(Base):
     __tablename__ = "credit_notes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    sequence_number: Mapped[int] = mapped_column(index=True)
     number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
     invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), index=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
@@ -327,6 +330,7 @@ class DebitNote(Base):
     __tablename__ = "debit_notes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    sequence_number: Mapped[int] = mapped_column(index=True)
     number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
     invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), index=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
@@ -364,6 +368,8 @@ class Payment(Base):
     __tablename__ = "payments"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    sequence_number: Mapped[int] = mapped_column(index=True)
+    number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
     invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), index=True)
     payment_date: Mapped[date] = mapped_column(Date, default=date.today)
     mode: Mapped[str] = mapped_column(String(50), default="NEFT")
@@ -420,6 +426,7 @@ class PurchaseBill(Base):
     __tablename__ = "purchase_bills"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    sequence_number: Mapped[int] = mapped_column(index=True)
     number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
     vendor_id: Mapped[int] = mapped_column(ForeignKey("vendors.id"), index=True)
     vendor_bill_number: Mapped[str] = mapped_column(String(60), default="")
@@ -481,6 +488,8 @@ class Expense(Base):
     __tablename__ = "expenses"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    sequence_number: Mapped[int] = mapped_column(index=True)
+    number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
     expense_date: Mapped[date] = mapped_column(Date, default=date.today)
     category: Mapped[str] = mapped_column(String(60), default="Other")
     description: Mapped[str] = mapped_column(String(240), default="")
@@ -513,6 +522,7 @@ class JournalEntry(Base):
     __tablename__ = "journal_entries"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    sequence_number: Mapped[int] = mapped_column(index=True)
     number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
     entry_date: Mapped[date] = mapped_column(Date, default=date.today, index=True)
     narration: Mapped[str] = mapped_column(String(240), default="")
