@@ -171,9 +171,13 @@ class BusinessSettings(Base):
     account_number: Mapped[str] = mapped_column(String(80), default="000000000000")
     ifsc: Mapped[str] = mapped_column(String(40), default="BARB0VIZIAN")
     upi_id: Mapped[str] = mapped_column(String(120), default="crystalframes@upi")
-    quotation_terms: Mapped[str] = mapped_column(Text, default="50% advance with order confirmation. Balance as per approved payment schedule. Final billing is subject to site measurement and approved specifications.")
+    warranty_manufacturing_years: Mapped[int] = mapped_column(default=20)
+    warranty_hardware_years: Mapped[int] = mapped_column(default=5)
+    delivery_weeks: Mapped[int] = mapped_column(default=3)
+    quotation_terms: Mapped[str] = mapped_column(Text, default="Payment Terms: 50% advance with order confirmation, 40% before material delivery, 10% after installation. Warranty: Manufacturing defects covered for 20 years, hardware defects for 5 years. Delivery: 3-4 weeks from confirmation and advance payment. Installation: No extra charges. Silicon filling upto 3mm gap; gaps over 3mm require builder plastering. If grills are pre-fixed, silicon filling on one side only. Order Confirmation: All changes to design/specifications after confirmation will not be accepted. Changes must be made before order confirmation.")
     invoice_terms: Mapped[str] = mapped_column(Text, default="Payment due as per agreed schedule. Goods once supplied against approved specifications are not returnable.")
     payment_terms: Mapped[str] = mapped_column(Text, default="Payment received with thanks. This receipt is valid subject to bank realization.")
+    installation_notes: Mapped[str] = mapped_column(Text, default="No extra charges for installation. Installation delays due to site conditions are builder's responsibility. Builder must provide necessary logistics and electric support at no cost. Silicon will be filled upto 3mm gap. If gap is more than 3mm, builder is responsible for plastering. If grills are fixed before window installation, silicon filling will be done on one side only.")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
@@ -197,6 +201,11 @@ class Quotation(Base):
     advance: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     balance: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     notes: Mapped[str] = mapped_column(Text, default="")
+    warranty_manufacturing_years: Mapped[int] = mapped_column(default=20)
+    warranty_hardware_years: Mapped[int] = mapped_column(default=5)
+    delivery_weeks: Mapped[int] = mapped_column(default=3)
+    installation_notes: Mapped[str] = mapped_column(Text, default="No extra charges for installation. Silicon filling upto 3mm gap. Builder to provide necessary logistics and electric support.")
+    quotation_terms: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     customer: Mapped[Customer] = relationship(back_populates="quotations")

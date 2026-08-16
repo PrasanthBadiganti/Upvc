@@ -315,12 +315,102 @@ def build_quotation_pdf(quotation: Quotation, settings: BusinessSettings | None 
         ["", "", "", "", "", "", "", "Advance", _money(quotation.advance)],
         ["", "", "", "", "", "", "", "Balance", _money(quotation.balance)],
     ])
-    terms = f"{_business(settings).quotation_terms}\n{quotation.notes or ''}".strip()
+
     story.extend([
         _item_table(rows, [8 * mm, 42 * mm, 14 * mm, 25 * mm, 12 * mm, 10 * mm, 17 * mm, 22 * mm, 36 * mm], len(rows) - 7),
-        Spacer(1, 10),
-        _footer_blocks(settings, terms, styles),
+        Spacer(1, 8),
     ])
+
+    # Specifications Section
+    if any(item.profile or item.color or item.glass or item.hardware or item.reinforcement or item.mesh or item.track for item in quotation.items):
+        story.append(Paragraph("Product Specifications", styles["Section"]))
+        spec_items = quotation.items[0] if quotation.items else None
+        if spec_items:
+            specs = [
+                ("Profile", spec_items.profile),
+                ("Color", spec_items.color),
+                ("Glass Type", spec_items.glass),
+                ("Glass Color", spec_items.glass_color),
+                ("Hardware", spec_items.hardware),
+                ("Reinforcement", spec_items.reinforcement),
+                ("Mesh", spec_items.mesh),
+                ("Track", spec_items.track),
+            ]
+            spec_data = [[k, v or "-"] for k, v in specs if v or k in ["Profile", "Color"]]
+            spec_table = Table(spec_data, colWidths=[60 * mm, 126 * mm])
+            spec_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (0, -1), PALE_BLUE),
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                ("GRID", (0, 0), (-1, -1), 0.35, BORDER),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            story.extend([spec_table, Spacer(1, 6)])
+
+    # Warranty & Delivery Section
+    story.append(Paragraph("Warranty & Delivery", styles["Section"]))
+    warranty_data = [
+        ["Manufacturing Warranty", f"{quotation.warranty_manufacturing_years or 20} Years"],
+        ["Hardware Warranty", f"{quotation.warranty_hardware_years or 5} Years"],
+        ["Delivery Timeline", f"{quotation.delivery_weeks or 3}-{(quotation.delivery_weeks or 3) + 1} Weeks from Confirmation"],
+    ]
+    warranty_table = Table(warranty_data, colWidths=[60 * mm, 126 * mm])
+    warranty_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), PALE_BLUE),
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+        ("GRID", (0, 0), (-1, -1), 0.35, BORDER),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.extend([warranty_table, Spacer(1, 6)])
+
+    # Installation Notes Section
+    if quotation.installation_notes:
+        story.append(Paragraph("Installation Notes", styles["Section"]))
+        installation_para = Paragraph(_text(quotation.installation_notes), styles["BodySmall"])
+        story.extend([installation_para, Spacer(1, 6)])
+
+    # Terms & Conditions Section
+    terms_text = quotation.quotation_terms or _business(settings).quotation_terms
+    if quotation.notes:
+        terms_text = f"{terms_text}\n\nNotes: {quotation.notes}"
+    story.append(Paragraph("Terms & Conditions", styles["Section"]))
+    terms_para = Paragraph(_text(terms_text), styles["BodySmall"])
+    story.extend([terms_para, Spacer(1, 8)])
+
+    # Footer with bank details
+    business = _business(settings)
+    bank_data = [
+        ["Bank", _text(business.bank_name)],
+        ["Account Name", _text(business.account_name)],
+        ["Account No.", _text(business.account_number)],
+        ["IFSC", _text(business.ifsc)],
+        ["UPI", _text(business.upi_id)],
+    ]
+    bank_table = Table(bank_data, colWidths=[60 * mm, 126 * mm])
+    bank_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), PALE_BLUE),
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+        ("GRID", (0, 0), (-1, -1), 0.35, BORDER),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+
+    story.append(Paragraph("Bank / Payment Details", styles["Section"]))
+    story.append(bank_table)
+
     _doc(buffer).build(story)
     return buffer.getvalue()
 

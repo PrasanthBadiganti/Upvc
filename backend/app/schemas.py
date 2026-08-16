@@ -233,6 +233,11 @@ class QuotationCreate(BaseModel):
     transport: Decimal = Decimal("0")
     discount: Decimal = Decimal("0")
     notes: str = ""
+    warranty_manufacturing_years: int = 20
+    warranty_hardware_years: int = 5
+    delivery_weeks: int = 3
+    installation_notes: str = ""
+    quotation_terms: str = ""
     items: list[QuotationItemPayload]
 
 
@@ -258,6 +263,11 @@ class QuotationRead(ORMModel):
     advance: Decimal
     balance: Decimal
     notes: str
+    warranty_manufacturing_years: int
+    warranty_hardware_years: int
+    delivery_weeks: int
+    installation_notes: str
+    quotation_terms: str
     created_at: datetime
     items: list[QuotationItemRead]
     customer: CustomerRead
