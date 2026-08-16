@@ -14,7 +14,7 @@ export default function QuotationDetails(){
  const convert=async()=>{const {data}=await api.post(`/quotations/${q.id}/convert`);navigate(`/invoices/${data.id}`)};
  const duplicate=async()=>{const {data}=await api.post(`/quotations/${q.id}/duplicate`);navigate(`/quotations/${data.id}/edit`)};
  const revise=async()=>{const {data}=await api.post(`/quotations/${q.id}/revise`);navigate(`/quotations/${data.id}/edit`)};
- const printPdf=()=>{const pdfWindow=window.open(`/api/quotations/${q.id}/pdf`);if(pdfWindow){setTimeout(()=>{pdfWindow.print();},250);}};
+ const printPdf=()=>{const iframe=document.createElement('iframe');iframe.style.display='none';iframe.src=`/api/quotations/${q.id}/pdf`;iframe.onload=()=>{setTimeout(()=>{if(iframe.contentWindow){iframe.contentWindow.print();}},250);};document.body.appendChild(iframe);};
  const download=()=>{const a=document.createElement('a');a.href=`/api/quotations/${q.id}/pdf`;a.download=`${q.number}.pdf`;a.click();};
  const share=async()=>{await navigator.clipboard.writeText(`${window.location.origin}/quotations/${q.id}`);alert('Quotation link copied');};
  const locked=['Accepted','Converted'].includes(q.status);
