@@ -24,7 +24,9 @@ from .database import Base, DEFAULT_DB_PATH, SessionLocal, engine, get_db
 from .gst_reports import ap_aging_report, balance_sheet_report, cash_flow_statement, gstr1_offline_json, gstr1_report, gstr3b_report, hsn_summary_report, profit_and_loss_report, purchase_register, sales_register
 from .opening_balances import commit_opening_balances, preview_opening_balances
 from .party_import import commit_customer_import, commit_vendor_import, preview_customer_import, preview_vendor_import
+from .html_pdf import BrowserNotFound
 from .pdf import build_credit_note_pdf, build_debit_note_pdf, build_invoice_pdf, build_payment_receipt_pdf, build_purchase_bill_pdf, build_quotation_pdf
+from .pdf_html import build_invoice_pdf_html, build_quotation_pdf_html
 from .rbac import initialize_roles_and_permissions
 from .seed import seed_database
 from .services import cancel_credit_note, cancel_debit_note, cancel_invoice, cancel_purchase_bill, close_financial_year, convert_quotation_to_invoice, create_expense, create_financial_year, create_fixed_asset, create_manual_journal_entry, create_purchase_bill, create_quotation, create_stock_item, delete_expense, dispose_fixed_asset, duplicate_quotation, get_account_ledger, get_credit_note, get_debit_note, get_expense, get_financial_year, get_fixed_asset, get_invoice, get_journal_entry, get_payment, get_purchase_bill, get_quotation, get_stock_item, get_trial_balance, issue_credit_note, issue_debit_note, list_chart_of_accounts, list_financial_years, list_fixed_assets, list_journal_entries, list_stock_items, money, next_code, record_depreciation, record_payment, record_stock_movement, record_vendor_payment, reopen_financial_year, reopen_invoice, reopen_purchase_bill, reverse_manual_journal_entry, update_expense, update_quotation, update_stock_item
@@ -704,7 +706,12 @@ def quotation_pdf(quotation_id: int, db: Session = Depends(get_db)):
         quotation = get_quotation(db, quotation_id)
     except Exception as exc:
         raise HTTPException(404, "Quotation not found") from exc
-    data = build_quotation_pdf(quotation, get_or_create_business_settings(db))
+    settings = get_or_create_business_settings(db)
+    try:
+        data = build_quotation_pdf_html(quotation, settings)
+    except BrowserNotFound:
+        # No Chromium available on this machine - fall back to the ReportLab layout.
+        data = build_quotation_pdf(quotation, settings)
     return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{quotation.number}.pdf"'})
 
 
@@ -817,7 +824,12 @@ def invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
         invoice = get_invoice(db, invoice_id)
     except Exception as exc:
         raise HTTPException(404, "Invoice not found") from exc
-    data = build_invoice_pdf(invoice, get_or_create_business_settings(db))
+    settings = get_or_create_business_settings(db)
+    try:
+        data = build_invoice_pdf_html(invoice, settings)
+    except BrowserNotFound:
+        # No Chromium available on this machine - fall back to the ReportLab layout.
+        data = build_invoice_pdf(invoice, settings)
     return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{invoice.number}.pdf"'})
 
 

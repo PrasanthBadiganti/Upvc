@@ -23,6 +23,9 @@ MUTED = colors.HexColor("#64748b")
 BORDER = colors.HexColor("#d8e1ec")
 SOFT = colors.HexColor("#f6f8fb")
 PALE_BLUE = colors.HexColor("#eaf2ff")
+HEADER_BG = colors.HexColor("#0d47a1")  # Navy blue for table headers (matching HTML template)
+HEADER_TEXT = colors.white  # White text for header
+CARD_BG = colors.HexColor("#f5f5f5")  # Light gray for info cards
 
 
 def _money(value: object) -> str:
@@ -41,12 +44,21 @@ def _styles() -> dict[str, ParagraphStyle]:
     sample = getSampleStyleSheet()
     sample.add(ParagraphStyle("DocTitle", parent=sample["Heading1"], fontName="Helvetica-Bold", fontSize=20, leading=24, textColor=NAVY, spaceAfter=4))
     sample.add(ParagraphStyle("Section", parent=sample["Heading3"], fontName="Helvetica-Bold", fontSize=9.5, leading=12, textColor=NAVY, spaceBefore=3, spaceAfter=5))
+    sample.add(ParagraphStyle("CardTitle", parent=sample["Heading3"], fontName="Helvetica-Bold", fontSize=8.5, leading=11, textColor=INK, spaceBefore=0, spaceAfter=3))
     sample.add(ParagraphStyle("Small", parent=sample["Normal"], fontSize=7.5, leading=10, textColor=MUTED))
     sample.add(ParagraphStyle("BodySmall", parent=sample["Normal"], fontSize=8, leading=10, textColor=INK))
     sample.add(ParagraphStyle("RightSmall", parent=sample["Normal"], fontSize=8, leading=10, textColor=INK, alignment=TA_RIGHT))
     sample.add(ParagraphStyle("Logo", parent=sample["Normal"], fontName="Helvetica-Bold", fontSize=18, leading=22, textColor=colors.white, alignment=TA_CENTER))
     sample.add(ParagraphStyle("Company", parent=sample["Normal"], fontName="Helvetica-Bold", fontSize=16, leading=19, textColor=NAVY))
     sample.add(ParagraphStyle("Total", parent=sample["Normal"], fontName="Helvetica-Bold", fontSize=10, leading=12, textColor=NAVY))
+    sample.add(ParagraphStyle("SummaryLabel", parent=sample["Normal"], fontSize=8, leading=10, textColor=INK))
+    sample.add(ParagraphStyle("SummaryValue", parent=sample["Normal"], fontSize=8, leading=10, textColor=INK, alignment=TA_RIGHT))
+    sample.add(ParagraphStyle("DiscountValue", parent=sample["Normal"], fontSize=8, leading=10, textColor=colors.HexColor("#d32f2f"), alignment=TA_RIGHT))
+    sample.add(ParagraphStyle("TotalLabel", parent=sample["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=INK))
+    sample.add(ParagraphStyle("TotalValue", parent=sample["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=NAVY, alignment=TA_RIGHT))
+    sample.add(ParagraphStyle("QuoteTitle", parent=sample["Heading1"], fontName="Helvetica-Bold", fontSize=18, leading=22, textColor=INK, spaceAfter=8))
+    sample.add(ParagraphStyle("InfoLabel", parent=sample["Normal"], fontSize=8, leading=10, textColor=MUTED, fontName="Helvetica-Bold"))
+    sample.add(ParagraphStyle("InfoValue", parent=sample["Normal"], fontSize=9, leading=11, textColor=INK))
     return sample
 
 
@@ -108,14 +120,14 @@ def _header(document_title: str, number: str, settings: BusinessSettings | None,
 
 
 def _info_card(title: str, rows: list[tuple[str, object]], styles: dict[str, ParagraphStyle]) -> Table:
-    body = [[Paragraph(title.upper(), styles["Section"])]]
+    body = [[Paragraph(title.upper(), styles["CardTitle"])]]
     for label, value in rows:
-        body.append([Paragraph(f"<font color='#64748b'>{_text(label)}</font><br/><b>{_text(value)}</b>", styles["BodySmall"])])
+        body.append([Paragraph(f"<font color='#666666' size='8'>{_text(label)}</font><br/><b>{_text(value)}</b>", styles["BodySmall"])])
     table = Table(body, colWidths=[90 * mm])
     table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), PALE_BLUE),
+        ("BACKGROUND", (0, 0), (-1, 0), CARD_BG),
         ("BOX", (0, 0), (-1, -1), 0.6, BORDER),
-        ("INNERGRID", (0, 1), (-1, -1), 0.3, colors.HexColor("#edf2f7")),
+        ("INNERGRID", (0, 1), (-1, -1), 0.3, colors.HexColor("#efefef")),
         ("LEFTPADDING", (0, 0), (-1, -1), 7),
         ("RIGHTPADDING", (0, 0), (-1, -1), 7),
         ("TOPPADDING", (0, 0), (-1, -1), 5),
@@ -133,8 +145,8 @@ def _two_cards(left: Table, right: Table) -> Table:
 def _item_table(rows: list[list[object]], widths: list[float], summary_start: int | None = None) -> Table:
     table = Table(rows, colWidths=widths, repeatRows=1)
     style = [
-        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
+        ("TEXTCOLOR", (0, 0), (-1, 0), HEADER_TEXT),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, -1), 7),
         ("GRID", (0, 0), (-1, -1), 0.35, BORDER),
@@ -176,48 +188,187 @@ def _footer_blocks(settings: BusinessSettings | None, terms: str, styles: dict[s
 
 
 def build_invoice_pdf(invoice: Invoice, settings: BusinessSettings | None = None) -> bytes:
+    """Build A4 portrait invoice PDF with professional layout"""
     buffer = BytesIO()
     styles = _styles()
-    story = [
-        _header("Tax Invoice", invoice.number, settings, styles),
-        Spacer(1, 8),
-        _two_cards(
-            _info_card("Bill To", [
-                ("Customer", invoice.customer.name),
-                ("GSTIN", invoice.customer.gst_number or "-"),
-                ("Address", invoice.customer.address),
-                ("Project/Site", invoice.customer.project_site),
-            ], styles),
-            _info_card("Invoice Details", [
-                ("Invoice Date", invoice.invoice_date),
-                ("Due Date", invoice.due_date),
-                ("Status", invoice.status),
-                ("Source Quotation", invoice.quotation.number if invoice.quotation else "-"),
-            ], styles),
-        ),
-        Spacer(1, 10),
+    business = _business(settings)
+
+
+    story = []
+
+    # Header: Logo + Company Info
+    logo_placeholder = Table(
+        [["COMPANY LOGO"]],
+        colWidths=[30 * mm],
+        rowHeights=[22 * mm]
+    )
+    logo_placeholder.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BORDER", (0, 0), (-1, -1), 1.5, colors.HexColor("#0d47a1")),
+        ("BORDERPADDING", (0, 0), (-1, -1), 2),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("TEXTCOLOR", (0, 0), (-1, -1), MUTED),
+    ]))
+
+    company_info = [
+        Paragraph(f"<b><font size='14' color='#0d47a1'>{_text(business.company_name)}</font></b>", styles["Normal"]),
+        Paragraph(f"<font size='8' color='#666666'>{_text(business.address)}</font>", styles["Small"]),
+        Paragraph(f"<font size='8' color='#666666'>Phone: {_text(business.phone)}</font>", styles["Small"]),
+        Paragraph(f"<font size='8' color='#666666'>Email: {_text(business.email)}</font>", styles["Small"]),
+        Paragraph(f"<font size='8' color='#666666'>GST: {_text(business.gst_number)}</font>", styles["Small"]),
     ]
-    rows = [["#", "Description", "HSN", "Category", "Qty", "Rate", "GST", "Amount"]]
+
+    header_table = Table([[logo_placeholder, company_info]], colWidths=[35 * mm, 151 * mm])
+    header_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.white),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("LEFTPADDING", (1, 0), (1, 0), 10),
+    ]))
+
+    story.extend([header_table, Spacer(1, 5)])
+
+    # Separator line
+    separator = Table([["" for _ in range(4)]], colWidths=[47 * mm, 47 * mm, 47 * mm, 47 * mm])
+    separator.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, 0), 2, colors.HexColor("#0d47a1"))]))
+    story.append(separator)
+    story.append(Spacer(1, 5))
+
+    # Title
+    story.append(Paragraph("TAX INVOICE", styles["QuoteTitle"]))
+    story.append(Spacer(1, 6))
+
+    # Customer & Invoice Details
+    cust_details = [
+        Paragraph("BILL TO:", styles["InfoLabel"]),
+        Paragraph(f"<b>{_text(invoice.customer.name)}</b>", styles["InfoValue"]),
+        Paragraph(_text(invoice.customer.address or ""), styles["Small"]),
+        Paragraph(_text(invoice.customer.phone or ""), styles["Small"]),
+        Paragraph(f"GST: {_text(invoice.customer.gst_number or '-')}", styles["Small"]),
+    ]
+
+    invoice_details = [
+        Paragraph("INVOICE DETAILS", styles["InfoLabel"]),
+        Paragraph(f"<b>Ref No:</b> {_text(invoice.number)}", styles["InfoValue"]),
+        Paragraph(f"<b>Date:</b> {invoice.invoice_date}", styles["InfoValue"]),
+        Paragraph(f"<b>Due Date:</b> {invoice.due_date}", styles["InfoValue"]),
+    ]
+
+    info_table = Table([[cust_details, invoice_details]], colWidths=[93 * mm, 93 * mm])
+    info_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), SOFT),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOX", (0, 0), (-1, -1), 0.5, BORDER),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.extend([info_table, Spacer(1, 8)])
+
+    # Items Table Header
+    header_row = [
+        Paragraph("<b>S.No</b>", styles["BodySmall"]),
+        Paragraph("<b>Description</b>", styles["BodySmall"]),
+        Paragraph("<b>HSN</b>", styles["BodySmall"]),
+        Paragraph("<b>Qty</b>", styles["BodySmall"]),
+        Paragraph("<b>Unit</b>", styles["BodySmall"]),
+        Paragraph("<b>Rate</b>", styles["BodySmall"]),
+        Paragraph("<b>Amount</b>", styles["BodySmall"]),
+    ]
+
+    rows = [header_row]
     for i, item in enumerate(invoice.items, 1):
-        rows.append([str(i), Paragraph(_text(item.description), styles["BodySmall"]), item.hsn_code or "-", item.category, f"{item.quantity}", _money(item.rate), f"{item.gst_percent}%", _money(item.amount)])
-    gst_rows = [["", "", "", "", "", "", "IGST", _money(invoice.igst)]] if Decimal(invoice.igst or 0) > 0 else [
-        ["", "", "", "", "", "", "CGST", _money(invoice.cgst)],
-        ["", "", "", "", "", "", "SGST", _money(invoice.sgst)],
-    ]
-    rows.extend([
-        ["", "", "", "", "", "", "Subtotal", _money(invoice.subtotal)],
-        *([["", "", "", "", "", "", "Transport", _money(invoice.transport)]] if Decimal(invoice.transport or 0) else []),
-        *([["", "", "", "", "", "", "Discount", _money(invoice.discount)]] if Decimal(invoice.discount or 0) else []),
-        *gst_rows,
-        ["", "", "", "", "", "", "Grand Total", _money(invoice.grand_total)],
-        ["", "", "", "", "", "", "Paid", _money(invoice.paid_amount)],
-        ["", "", "", "", "", "", "Balance", _money(invoice.pending_balance)],
+        rows.append([
+            str(i),
+            Paragraph(_text(item.description), styles["BodySmall"]),
+            item.hsn_code or "-",
+            f"{item.quantity}",
+            item.unit or "-",
+            _money(item.rate),
+            _money(item.amount),
+        ])
+
+    items_table = Table(rows, colWidths=[8 * mm, 60 * mm, 18 * mm, 16 * mm, 18 * mm, 28 * mm, 38 * mm], repeatRows=1)
+    items_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
+        ("TEXTCOLOR", (0, 0), (-1, 0), HEADER_TEXT),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (0, -1), "CENTER"),
+        ("ALIGN", (3, 1), (3, -1), "RIGHT"),
+        ("ALIGN", (5, 1), (-1, -1), "RIGHT"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f9fafb")]),
+    ]))
+    story.append(items_table)
+    story.append(Spacer(1, 6))
+
+    # Summary Section
+    summary_data = []
+    summary_data.append([
+        Paragraph("Subtotal:", styles["SummaryLabel"]),
+        Paragraph(_money(invoice.subtotal), styles["SummaryValue"]),
     ])
-    story.extend([
-        _item_table(rows, [8 * mm, 50 * mm, 16 * mm, 20 * mm, 14 * mm, 24 * mm, 20 * mm, 34 * mm], len(invoice.items) + 1),
-        Spacer(1, 10),
-        _footer_blocks(settings, _business(settings).invoice_terms, styles),
+
+    if Decimal(invoice.discount or 0) > 0:
+        summary_data.append([
+            Paragraph("Discount:", styles["SummaryLabel"]),
+            Paragraph(_money(-invoice.discount), styles["DiscountValue"]),
+        ])
+        subtotal_after_discount = Decimal(invoice.subtotal or 0) - Decimal(invoice.discount or 0)
+        summary_data.append([
+            Paragraph("Subtotal after Discount:", styles["SummaryLabel"]),
+            Paragraph(_money(subtotal_after_discount), styles["SummaryValue"]),
+        ])
+
+    if Decimal(invoice.igst or 0) > 0:
+        summary_data.append([
+            Paragraph("IGST (18%):", styles["SummaryLabel"]),
+            Paragraph(_money(invoice.igst), styles["SummaryValue"]),
+        ])
+    else:
+        summary_data.append([
+            Paragraph("CGST (9%):", styles["SummaryLabel"]),
+            Paragraph(_money(invoice.cgst or 0), styles["SummaryValue"]),
+        ])
+        summary_data.append([
+            Paragraph("SGST (9%):", styles["SummaryLabel"]),
+            Paragraph(_money(invoice.sgst or 0), styles["SummaryValue"]),
+        ])
+
+    summary_data.append([
+        Paragraph("GRAND TOTAL:", styles["TotalLabel"]),
+        Paragraph(_money(invoice.grand_total), styles["TotalValue"]),
     ])
+
+    summary_table = Table(summary_data, colWidths=[120 * mm, 66 * mm])
+    summary_table.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (0, -1), "RIGHT"),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, -1), (-1, -1), 10),
+        ("LINEABOVE", (0, -1), (-1, -1), 1.5, colors.HexColor("#333333")),
+        ("LINEBELOW", (0, -1), (-1, -1), 1.5, colors.HexColor("#333333")),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 10))
+
+    # Footer: Terms & Conditions
+    story.append(Paragraph("Terms & Conditions", styles["Section"]))
+    terms_text = business.invoice_terms or ""
+    story.append(Paragraph(_text(terms_text), styles["BodySmall"]))
+
     _doc(buffer).build(story)
     return buffer.getvalue()
 
@@ -268,148 +419,178 @@ def build_purchase_bill_pdf(bill: PurchaseBill, settings: BusinessSettings | Non
 
 
 def build_quotation_pdf(quotation: Quotation, settings: BusinessSettings | None = None) -> bytes:
+    """Build A4 portrait quotation PDF matching the HTML template exactly"""
+    """Build A4 portrait quotation PDF with professional layout"""
     buffer = BytesIO()
     styles = _styles()
-    valid_until = quotation.quotation_date + timedelta(days=quotation.validity_days)
-    story = [
-        _header("Project Quotation", quotation.number, settings, styles),
-        Spacer(1, 8),
-        _two_cards(
-            _info_card("Client & Site", [
-                ("Customer", quotation.customer.name),
-                ("Phone / Email", f"{quotation.customer.phone} / {quotation.customer.email}"),
-                ("GSTIN", quotation.customer.gst_number or "-"),
-                ("Site", quotation.site_location or quotation.customer.project_site),
-                ("Address", quotation.address or quotation.customer.address),
-            ], styles),
-            _info_card("Quotation Details", [
-                ("Quotation Date", quotation.quotation_date),
-                ("Valid Until", valid_until),
-                ("Sales Person", quotation.sales_person),
-                ("Status", quotation.status),
-            ], styles),
-        ),
-        Spacer(1, 10),
+    business = _business(settings)
+
+
+    story = []
+
+    # Header: Logo + Company Info
+    logo_placeholder = Table(
+        [["COMPANY LOGO"]],
+        colWidths=[30 * mm],
+        rowHeights=[22 * mm]
+    )
+    logo_placeholder.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BORDER", (0, 0), (-1, -1), 1.5, colors.HexColor("#0d47a1")),
+        ("BORDERPADDING", (0, 0), (-1, -1), 2),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("TEXTCOLOR", (0, 0), (-1, -1), MUTED),
+    ]))
+
+    company_info = [
+        Paragraph(f"<b><font size='14' color='#0d47a1'>{_text(business.company_name)}</font></b>", styles["Normal"]),
+        Paragraph(f"<font size='8' color='#666666'>{_text(business.address)}</font>", styles["Small"]),
+        Paragraph(f"<font size='8' color='#666666'>Phone: {_text(business.phone)}</font>", styles["Small"]),
+        Paragraph(f"<font size='8' color='#666666'>Email: {_text(business.email)}</font>", styles["Small"]),
+        Paragraph(f"<font size='8' color='#666666'>GST: {_text(business.gst_number)}</font>", styles["Small"]),
     ]
-    rows = [["#", "Product / Specification", "HSN", "Size", "SFT", "Qty", "Total SFT", "Rate", "Amount"]]
+
+    header_table = Table([[logo_placeholder, company_info]], colWidths=[35 * mm, 151 * mm])
+    header_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.white),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("LEFTPADDING", (1, 0), (1, 0), 10),
+    ]))
+
+    story.extend([header_table, Spacer(1, 5)])
+
+    # Separator line
+    separator = Table([["" for _ in range(4)]], colWidths=[47 * mm, 47 * mm, 47 * mm, 47 * mm])
+    separator.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, 0), 2, colors.HexColor("#0d47a1"))]))
+    story.append(separator)
+    story.append(Spacer(1, 5))
+
+    # Title
+    story.append(Paragraph("QUOTATION", styles["QuoteTitle"]))
+    story.append(Spacer(1, 6))
+
+    # Customer & Quote Details - 2 column layout
+    cust_details = [
+        Paragraph("<b><font size='10' color='#333333'>BILL TO:</font></b>", styles["Normal"]),
+        Paragraph(f"<b><font size='9' color='#333333'>{_text(quotation.customer.name)}</font></b>", styles["Normal"]),
+        Paragraph(f"<font size='8' color='#666666'>{_text(quotation.address or quotation.customer.address or '')}</font>", styles["Small"]),
+        Paragraph(f"<font size='8' color='#666666'>Phone: {_text(quotation.customer.phone or '')}</font>", styles["Small"]),
+        Paragraph(f"<font size='8' color='#666666'>GST: {_text(quotation.customer.gst_number or '-')}</font>", styles["Small"]),
+    ]
+
+    quote_details = [
+        Paragraph("<b><font size='10' color='#333333'>QUOTATION DETAILS</font></b>", styles["Normal"]),
+        Paragraph(f"<font size='9'><b>Ref No:</b> <font color='#333333'>{_text(quotation.number)}</font></font>", styles["Normal"]),
+        Paragraph(f"<font size='9'><b>Date:</b> <font color='#333333'>{quotation.quotation_date}</font></font>", styles["Normal"]),
+        Paragraph(f"<font size='9'><b>Valid Till:</b> <font color='#333333'>{quotation.quotation_date + timedelta(days=quotation.validity_days)}</font></font>", styles["Normal"]),
+    ]
+
+    info_table = Table([[cust_details, quote_details]], colWidths=[90 * mm, 96 * mm])
+    info_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f5f5f5")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    story.extend([info_table, Spacer(1, 8)])
+
+    # Items Table Header
+    header_row = [
+        Paragraph("<b>S.No</b>", styles["BodySmall"]),
+        Paragraph("<b>Description</b>", styles["BodySmall"]),
+        Paragraph("<b>HSN</b>", styles["BodySmall"]),
+        Paragraph("<b>Qty</b>", styles["BodySmall"]),
+        Paragraph("<b>Rate</b>", styles["BodySmall"]),
+        Paragraph("<b>Amount</b>", styles["BodySmall"]),
+    ]
+
+    rows = [header_row]
     for i, item in enumerate(quotation.items, 1):
-        item_name = _text(f"{item.category} {item.style}".strip())
-        material = _text(", ".join(filter(None, [item.profile, item.color, item.track, item.glass, item.glass_color, item.hardware, item.reinforcement, item.mesh])))
+        desc = f"{item.category} {item.style}".strip() if hasattr(item, 'category') else "Item"
         rows.append([
             str(i),
-            Paragraph(f"<b>{item_name}</b><br/><font size='7' color='#64748b'>{material}</font><br/><font size='7'>Location: {_text(item.location)}</font>", styles["BodySmall"]),
+            Paragraph(_text(desc), styles["BodySmall"]),
             item.hsn_code or "-",
-            f"{item.width_mm} x {item.height_mm} mm",
-            f"{item.sft}",
-            str(item.quantity),
-            f"{item.total_sft}",
-            _money(item.rate_per_sft),
-            _money(item.amount),
+            f"{item.quantity}",
+            _money(item.rate_per_sft if hasattr(item, 'rate_per_sft') else item.rate if hasattr(item, 'rate') else 0),
+            _money(item.amount if hasattr(item, 'amount') else 0),
         ])
-    rows.extend([
-        ["", "", "", "", "", "", "", "Subtotal", _money(quotation.subtotal)],
-        ["", "", "", "", "", "", "", "Transport", _money(quotation.transport)],
-        ["", "", "", "", "", "", "", "Discount", _money(quotation.discount)],
-        ["", "", "", "", "", "", "", "GST", _money(quotation.gst)],
-        ["", "", "", "", "", "", "", "Grand Total", _money(quotation.grand_total)],
-        ["", "", "", "", "", "", "", "Advance", _money(quotation.advance)],
-        ["", "", "", "", "", "", "", "Balance", _money(quotation.balance)],
-    ])
 
-    story.extend([
-        _item_table(rows, [8 * mm, 42 * mm, 14 * mm, 25 * mm, 12 * mm, 10 * mm, 17 * mm, 22 * mm, 36 * mm], len(rows) - 7),
-        Spacer(1, 8),
-    ])
-
-    # Specifications Section
-    if any(item.profile or item.color or item.glass or item.hardware or item.reinforcement or item.mesh or item.track for item in quotation.items):
-        story.append(Paragraph("Product Specifications", styles["Section"]))
-        spec_items = quotation.items[0] if quotation.items else None
-        if spec_items:
-            specs = [
-                ("Profile", spec_items.profile),
-                ("Color", spec_items.color),
-                ("Glass Type", spec_items.glass),
-                ("Glass Color", spec_items.glass_color),
-                ("Hardware", spec_items.hardware),
-                ("Reinforcement", spec_items.reinforcement),
-                ("Mesh", spec_items.mesh),
-                ("Track", spec_items.track),
-            ]
-            spec_data = [[k, v or "-"] for k, v in specs if v or k in ["Profile", "Color"]]
-            spec_table = Table(spec_data, colWidths=[60 * mm, 126 * mm])
-            spec_table.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (0, -1), PALE_BLUE),
-                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 8.5),
-                ("GRID", (0, 0), (-1, -1), 0.35, BORDER),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ]))
-            story.extend([spec_table, Spacer(1, 6)])
-
-    # Warranty & Delivery Section
-    story.append(Paragraph("Warranty & Delivery", styles["Section"]))
-    warranty_data = [
-        ["Manufacturing Warranty", f"{quotation.warranty_manufacturing_years or 20} Years"],
-        ["Hardware Warranty", f"{quotation.warranty_hardware_years or 5} Years"],
-        ["Delivery Timeline", f"{quotation.delivery_weeks or 3}-{(quotation.delivery_weeks or 3) + 1} Weeks from Confirmation"],
-    ]
-    warranty_table = Table(warranty_data, colWidths=[60 * mm, 126 * mm])
-    warranty_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, -1), PALE_BLUE),
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
-        ("GRID", (0, 0), (-1, -1), 0.35, BORDER),
+    items_table = Table(rows, colWidths=[8 * mm, 70 * mm, 18 * mm, 16 * mm, 28 * mm, 46 * mm], repeatRows=1)
+    items_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
+        ("TEXTCOLOR", (0, 0), (-1, 0), HEADER_TEXT),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("ALIGN", (0, 0), (0, -1), "CENTER"),
+        ("ALIGN", (3, 1), (3, -1), "RIGHT"),
+        ("ALIGN", (5, 1), (-1, -1), "RIGHT"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
+    ]))
+    story.append(items_table)
+    story.append(Spacer(1, 6))
+
+    # Summary Section
+    summary_data = []
+    summary_data.append([
+        Paragraph("Subtotal:", styles["SummaryLabel"]),
+        Paragraph(_money(quotation.subtotal), styles["SummaryValue"]),
+    ])
+
+    if Decimal(quotation.discount or 0) > 0:
+        summary_data.append([
+            Paragraph("Discount:", styles["SummaryLabel"]),
+            Paragraph(_money(-quotation.discount), styles["DiscountValue"]),
+        ])
+        subtotal_after_discount = Decimal(quotation.subtotal or 0) - Decimal(quotation.discount or 0)
+        summary_data.append([
+            Paragraph("Subtotal after Discount:", styles["SummaryLabel"]),
+            Paragraph(_money(subtotal_after_discount), styles["SummaryValue"]),
+        ])
+
+    summary_data.append([
+        Paragraph("GST (18%):", styles["SummaryLabel"]),
+        Paragraph(_money(quotation.gst or 0), styles["SummaryValue"]),
+    ])
+
+    summary_data.append([
+        Paragraph("GRAND TOTAL:", styles["TotalLabel"]),
+        Paragraph(_money(quotation.grand_total), styles["TotalValue"]),
+    ])
+
+    summary_table = Table(summary_data, colWidths=[120 * mm, 66 * mm])
+    summary_table.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (0, -1), "RIGHT"),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, -1), (-1, -1), 10),
+        ("LINEABOVE", (0, -1), (-1, -1), 1.5, colors.HexColor("#333333")),
+        ("LINEBELOW", (0, -1), (-1, -1), 1.5, colors.HexColor("#333333")),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
-    story.extend([warranty_table, Spacer(1, 6)])
+    story.append(summary_table)
+    story.append(Spacer(1, 10))
 
-    # Installation Notes Section
-    if quotation.installation_notes:
-        story.append(Paragraph("Installation Notes", styles["Section"]))
-        installation_para = Paragraph(_text(quotation.installation_notes), styles["BodySmall"])
-        story.extend([installation_para, Spacer(1, 6)])
-
-    # Terms & Conditions Section
-    terms_text = quotation.quotation_terms or _business(settings).quotation_terms
+    # Footer: Terms & Conditions
+    story.append(Paragraph("Terms & Conditions", styles["Section"]))
+    terms_text = quotation.quotation_terms or business.quotation_terms or ""
     if quotation.notes:
         terms_text = f"{terms_text}\n\nNotes: {quotation.notes}"
-    story.append(Paragraph("Terms & Conditions", styles["Section"]))
-    terms_para = Paragraph(_text(terms_text), styles["BodySmall"])
-    story.extend([terms_para, Spacer(1, 8)])
-
-    # Footer with bank details
-    business = _business(settings)
-    bank_data = [
-        ["Bank", _text(business.bank_name)],
-        ["Account Name", _text(business.account_name)],
-        ["Account No.", _text(business.account_number)],
-        ["IFSC", _text(business.ifsc)],
-        ["UPI", _text(business.upi_id)],
-    ]
-    bank_table = Table(bank_data, colWidths=[60 * mm, 126 * mm])
-    bank_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, -1), PALE_BLUE),
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
-        ("GRID", (0, 0), (-1, -1), 0.35, BORDER),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-
-    story.append(Paragraph("Bank / Payment Details", styles["Section"]))
-    story.append(bank_table)
+    story.append(Paragraph(_text(terms_text), styles["BodySmall"]))
 
     _doc(buffer).build(story)
     return buffer.getvalue()
