@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "dev:lan": "vite --host 0.0.0.0",
     "backup:dist": "node scripts/backup-dist.mjs",
     "build": "npm run backup:dist && tsc -b && vite build",
     "build:fresh": "npm run build",

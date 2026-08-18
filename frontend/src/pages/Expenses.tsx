@@ -4,6 +4,8 @@ import api from '../api';
 import { Button, Card, Field, Input, Loading, Modal, PageHeader, Select } from '../components/UI';
 import { Expense, Vendor } from '../types';
 import { currency, shortDate } from '../utils';
+import { useConfirm } from '../contexts/ConfirmContext';
+import Pagination, { usePagination } from '../components/Pagination';
 
 type ExpenseForm = {
   expense_date: string;
@@ -32,6 +34,7 @@ const blank: ExpenseForm = {
 };
 
 export default function Expenses() {
+  const confirm = useConfirm();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,14 +71,16 @@ export default function Expenses() {
   };
 
   const remove = async (expense: Expense) => {
-    if (!window.confirm(`Delete this ${expense.category} expense of ${currency(expense.total, 2)}?`)) return;
+    if (!(await confirm({ title: 'Delete expense', message: `Permanently delete this ${expense.category} expense of ${currency(expense.total, 2)}? Its ledger entries are removed too.`, confirmLabel: 'Delete', cancelLabel: 'Keep it', isDangerous: true }))) return;
     await api.delete(`/expenses/${expense.id}`);
     await load();
   };
 
+  const { pageRows, props: pageProps } = usePagination(expenses);
+
   return <>
     <PageHeader title="Expenses" subtitle="Day-to-day business outflows" action={<Button onClick={showAdd}><Plus size={15} /> Add Expense</Button>} />
-    <Card className="list-card">{loading ? <Loading /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Vendor</th><th>Mode</th><th>Amount</th><th>GST</th><th>Total</th><th>Action</th></tr></thead><tbody>{expenses.map(expense => <tr key={expense.id}>
+    <Card className="list-card">{loading ? <Loading /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Vendor</th><th>Mode</th><th>Amount</th><th>GST</th><th>Total</th><th>Action</th></tr></thead><tbody>{pageRows.map(expense => <tr key={expense.id}>
       <td>{shortDate(expense.expense_date)}</td>
       <td>{expense.category}</td>
       <td>{expense.description || '--'}</td>
@@ -87,7 +92,7 @@ export default function Expenses() {
       <td><div className="action-group"><button className="mini-button" onClick={() => showEdit(expense)}><Edit3 size={14} /></button><button className="mini-button" onClick={() => remove(expense)}><Trash2 size={14} /></button></div></td>
     </tr>)}
     {!expenses.length && <tr><td colSpan={9} className="muted">No expenses recorded</td></tr>}
-    </tbody></table></div>}</Card>
+    </tbody></table></div>}<Pagination {...pageProps} noun="expenses" /></Card>
 
     <Modal open={open} onClose={() => setOpen(false)} title={editing ? 'Edit Expense' : 'Add Expense'} width={640}>
       <form onSubmit={submit}>

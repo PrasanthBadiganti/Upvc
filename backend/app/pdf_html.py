@@ -418,13 +418,18 @@ def build_quotation_html(quotation: Quotation, settings: BusinessSettings) -> st
     transport = Decimal(quotation.transport or 0)
     discount = Decimal(quotation.discount or 0)
     gst = Decimal(quotation.gst or 0)
-    taxable = subtotal + transport - discount
+    taxable_charges = sum((Decimal(c.amount or 0) for c in quotation.charges if c.taxable), Decimal("0"))
+    taxable = subtotal + transport + taxable_charges - discount
 
     summary: list[tuple[str, str, str]] = [("Subtotal:", _inr(subtotal), "")]
     if transport > 0:
         summary.append(("Transport:", _inr(transport), ""))
+    for charge in quotation.charges:
+        if charge.taxable:
+            summary.append((f"{escape(charge.label)}:", _inr(charge.amount), ""))
     if discount > 0:
         summary.append(("Discount:", f"-{_inr(discount)}", " discount-row"))
+    if discount > 0 or quotation.charges or transport > 0:
         summary.append(("Taxable Value:", _inr(taxable), ""))
 
     # Quotations store one GST figure; split it the way the invoice does -
@@ -436,6 +441,10 @@ def build_quotation_html(quotation: Quotation, settings: BusinessSettings) -> st
     else:
         half = (gst / 2).quantize(Decimal("0.01"))
         summary.extend(_tax_rows(half, gst - half, Decimal(0), taxable))
+    # Non-taxable charges sit after the tax lines so the column adds up in reading order.
+    for charge in quotation.charges:
+        if not charge.taxable:
+            summary.append((f"{escape(charge.label)} (no GST):", _inr(charge.amount), ""))
     summary.append(("GRAND TOTAL:", _inr(quotation.grand_total), " total-row"))
 
     valid_till = quotation.quotation_date + timedelta(days=quotation.validity_days or 0)
@@ -490,17 +499,26 @@ def build_invoice_html(invoice: Invoice, settings: BusinessSettings) -> str:
     subtotal = Decimal(invoice.subtotal or 0)
     transport = Decimal(invoice.transport or 0)
     discount = Decimal(invoice.discount or 0)
-    taxable = subtotal + transport - discount
+    taxable_charges = sum((Decimal(c.amount or 0) for c in invoice.charges if c.taxable), Decimal("0"))
+    taxable = subtotal + transport + taxable_charges - discount
 
     summary: list[tuple[str, str, str]] = [("Subtotal:", _inr(subtotal), "")]
     if transport > 0:
         summary.append(("Transport:", _inr(transport), ""))
+    for charge in invoice.charges:
+        if charge.taxable:
+            summary.append((f"{escape(charge.label)}:", _inr(charge.amount), ""))
     if discount > 0:
         summary.append(("Discount:", f"-{_inr(discount)}", " discount-row"))
+    if discount > 0 or invoice.charges or transport > 0:
         summary.append(("Taxable Value:", _inr(taxable), ""))
     summary.extend(_tax_rows(
         Decimal(invoice.cgst or 0), Decimal(invoice.sgst or 0), Decimal(invoice.igst or 0), taxable
     ))
+    # Non-taxable charges sit after the tax lines so the column adds up in reading order.
+    for charge in invoice.charges:
+        if not charge.taxable:
+            summary.append((f"{escape(charge.label)} (no GST):", _inr(charge.amount), ""))
     summary.append(("GRAND TOTAL:", _inr(invoice.grand_total), " total-row"))
     if Decimal(invoice.paid_amount or 0) > 0:
         summary.append(("Amount Paid:", _inr(invoice.paid_amount), ""))

@@ -3,7 +3,8 @@ import { Boxes, ChevronDown, ChevronUp, CircleDot, Copy, DoorOpen, Download, Fil
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
 import { Button, Card, Field, Input, Modal, PageHeader, Select } from '../components/UI';
-import { CatalogItem, Customer, QuotationItem } from '../types';
+import { SearchableSelect } from '../components/SearchableSelect';
+import { CatalogItem, Customer, QuotationCharge, QuotationItem } from '../types';
 import { currency, INDIAN_STATES } from '../utils';
 import { useToastContext } from '../contexts/ToastContext';
 import { useKeyboardShortcut, SHORTCUTS } from '../hooks/useKeyboardShortcut';
@@ -23,6 +24,7 @@ export default function CreateQuotation() {
   const [customerId,setCustomerId] = useState<number>(0);
   const [items,setItems] = useState<QuotationItem[]>([emptyItem()]);
   const [transport,setTransport] = useState(0);
+  const [charges,setCharges] = useState<QuotationCharge[]>([]);
   const [discount,setDiscount] = useState(0);
   const [status,setStatus] = useState('Draft');
   const [saving,setSaving] = useState(false);
@@ -55,6 +57,7 @@ export default function CreateQuotation() {
       setCustomerId(data.customer_id);
       setStatus(data.status);
       setTransport(Number(data.transport));
+    setCharges((data.charges ?? []).map((c:QuotationCharge)=>({label:c.label,amount:Number(c.amount),taxable:c.taxable})));
       setDiscount(Number(data.discount));
       setForm({quotation_date:data.quotation_date,validity_days:data.validity_days,sales_person:data.sales_person,site_location:data.site_location,address:data.address,notes:data.notes});
       setWarrantyMfg(data.warranty_manufacturing_years || 20);
@@ -78,11 +81,19 @@ export default function CreateQuotation() {
 
   const totals = useMemo(()=>{
     const subtotal = items.reduce((s,i)=>s+Number(i.amount||0),0);
-    const taxable = subtotal + transport - discount;
+    // Charges marked taxable join the GST base; the rest are added after GST.
+    const taxableCharges = charges.filter(c=>c.taxable).reduce((s,c)=>s+Number(c.amount||0),0);
+    const exemptCharges = charges.filter(c=>!c.taxable).reduce((s,c)=>s+Number(c.amount||0),0);
+    const taxable = subtotal + transport + taxableCharges - discount;
     const gst = taxable*.18;
-    const grand = taxable+gst;
-    return {subtotal,taxable,gst,grand,advance:grand*.5,balance:grand*.5,totalSft:items.reduce((s,i)=>s+Number(i.total_sft||0),0)};
-  },[items,transport,discount]);
+    const grand = taxable+gst+exemptCharges;
+    return {subtotal,taxable,gst,grand,taxableCharges,exemptCharges,advance:grand*.5,balance:grand*.5,totalSft:items.reduce((s,i)=>s+Number(i.total_sft||0),0)};
+  },[items,transport,discount,charges]);
+
+  const addCharge = () => setCharges(prev=>[...prev,{label:'',amount:0,taxable:true}]);
+  const updateCharge = (index:number,key:keyof QuotationCharge,value:string|number|boolean) =>
+    setCharges(prev=>prev.map((row,i)=>i===index?{...row,[key]:value}:row));
+  const removeCharge = (index:number) => setCharges(prev=>prev.filter((_,i)=>i!==index));
 
   const update = (index:number,key:keyof QuotationItem,value:string|number) => {
     setItems(prev=>prev.map((row,i)=>{
@@ -134,7 +145,7 @@ export default function CreateQuotation() {
     setSaving(true);
     try {
       const selected=customers.find(c=>c.id===customerId);
-      const payload={customer_id:customerId,...form,status:send?'Sent':status,transport,discount,items,address:form.address || selected?.address || '',warranty_manufacturing_years,warranty_hardware_years,delivery_weeks,installation_notes,quotation_terms};
+      const payload={customer_id:customerId,...form,status:send?'Sent':status,transport,discount,items,charges:charges.filter(c=>c.label.trim()&&Number(c.amount)!==0),address:form.address || selected?.address || '',warranty_manufacturing_years,warranty_hardware_years,delivery_weeks,installation_notes,quotation_terms};
       const {data}=isEditing ? await api.put(`/quotations/${quoteId}`,payload) : await api.post('/quotations',payload);
       toast.success(send ? `Quotation sent to ${selected?.name}!` : 'Quotation saved as draft');
       navigate(isEditing ? `/quotations/${data.id}` : '/quotations',{state:{created:data.number}});
@@ -174,10 +185,14 @@ export default function CreateQuotation() {
             <div>
               <Field label="Customer Name" required>
                 <div style={{display:'flex',gap:8}}>
-                  <Select required style={{flex:1}} value={customerId} onChange={e=>setCustomerId(Number(e.target.value))}>
-                    <option value={0} disabled>Select customer...</option>
-                    {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-                  </Select>
+                  <SearchableSelect
+                    required
+                    style={{flex:1}}
+                    value={customerId || null}
+                    onChange={v=>setCustomerId(Number(v ?? 0))}
+                    placeholder="Search customer by name..."
+                    options={customers.map(c=>({value:c.id,label:c.phone?`${c.name} - ${c.phone}`:c.name}))}
+                  />
                   <button type="button" className="icon-btn" style={{background:'#edf4ff',borderColor:'#2468f2'}} title="Add New Customer" onClick={()=>setNewCustomerOpen(true)}><UserPlus2 size={17} style={{color:'#2468f2'}}/></button>
                 </div>
                 <small style={{color:'#60708a',marginTop:4,display:'block'}}>💡 Tip: Click the + icon to add a new customer</small>
@@ -279,7 +294,18 @@ export default function CreateQuotation() {
         <Card className="quote-summary">
           <h3>Quote Summary</h3>
           <div className="summary-line"><span>Subtotal</span><b>{currency(totals.subtotal,2)}</b></div>
-          <div className="summary-line"><span>Transport</span><Input type="number" placeholder="0" value={transport || ''} onChange={e=>setTransport(Number(e.target.value))} style={{width:100,height:31,textAlign:'right'}}/></div>
+          {transport>0 && <div className="summary-line"><span>Transport</span><Input type="number" value={transport || ''} onChange={e=>setTransport(Number(e.target.value))} style={{width:100,height:31,textAlign:'right'}}/></div>}
+          {charges.map((charge,index)=>(
+            <div className="summary-line charge-row" key={index}>
+              <Input placeholder="Charge name" value={charge.label} onChange={e=>updateCharge(index,'label',e.target.value)} style={{flex:1,height:31,minWidth:0}}/>
+              <label className="charge-gst" title="Include this charge in the GST calculation">
+                <input type="checkbox" checked={charge.taxable} onChange={e=>updateCharge(index,'taxable',e.target.checked)}/> GST
+              </label>
+              <Input type="number" placeholder="0" value={charge.amount || ''} onChange={e=>updateCharge(index,'amount',Number(e.target.value))} style={{width:92,height:31,textAlign:'right'}}/>
+              <button type="button" className="mini-button" title="Remove charge" onClick={()=>removeCharge(index)}><Trash2 size={13}/></button>
+            </div>
+          ))}
+          <button type="button" className="link-button" style={{alignSelf:'flex-start',marginTop:2}} onClick={addCharge}><Plus size={13}/> Add charge</button>
           <div className="summary-line"><span>Discount</span><Input type="number" placeholder="0" value={discount || ''} onChange={e=>setDiscount(Number(e.target.value))} style={{width:100,height:31,textAlign:'right',color:'#0eaf72'}}/></div>
           <hr style={{border:'none',borderTop:'1px solid #e2e8f0',margin:'10px 0'}}/>
           <div className="summary-line"><span>Taxable</span><b>{currency(totals.taxable,2)}</b></div>

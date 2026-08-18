@@ -6,6 +6,7 @@ import { Button, Card, Field, Input, Loading, Modal, PageHeader, Select } from '
 import Status from '../components/Status';
 import { FixedAsset, Vendor } from '../types';
 import { currency, shortDate } from '../utils';
+import Pagination, { usePagination } from '../components/Pagination';
 
 const categories = ['Machinery', 'Vehicle', 'Furniture', 'Computer & IT Equipment', 'Office Equipment', 'Building', 'Tools', 'Other'];
 
@@ -76,11 +77,12 @@ export default function FixedAssets() {
     }
   };
 
+  const { pageRows, props: pageProps } = usePagination(filtered);
+
   return <>
-    <PageHeader title="Fixed Assets" subtitle="Asset register with depreciation tracking" action={<Button onClick={showAdd}><Boxes size={15} /> Add Asset</Button>} />
-    <div className="list-toolbar"><div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search asset code, name or category..." /></div></div>
-    <Card className="list-card">{loading ? <Loading /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Asset</th><th>Category</th><th>Purchase Date</th><th>Cost</th><th>Accum. Depreciation</th><th>Book Value</th><th>Status</th><th>Action</th></tr></thead><tbody>{filtered.map(asset => <tr key={asset.id}>
-      <td><span className="cell-title">{asset.name}</span><span className="cell-sub">{asset.code}</span></td>
+    <PageHeader title="Fixed Assets" subtitle="Asset register with depreciation tracking" action={<Button onClick={showAdd}><Boxes size={15} /> Add Asset</Button>}  toolbar={<><div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search asset code, name or category..." /></div></>}/>
+        <Card className="list-card">{loading ? <Loading /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Asset Code</th><th>Asset Name</th><th>Category</th><th>Purchase Date</th><th>Cost</th><th>Accum. Depreciation</th><th>Book Value</th><th>Status</th><th>Action</th></tr></thead><tbody>{pageRows.map(asset => <tr key={asset.id}>
+      <td className="nowrap">{asset.code}</td><td title={asset.name}><b>{asset.name}</b></td>
       <td>{asset.category}</td>
       <td>{shortDate(asset.purchase_date)}</td>
       <td className="amount">{currency(asset.purchase_cost, 2)}</td>
@@ -89,8 +91,8 @@ export default function FixedAssets() {
       <td><Status value={asset.status} /></td>
       <td><button className="mini-button" title="View" onClick={() => navigate(`/fixed-assets/${asset.id}`)}><Eye size={14} /></button></td>
     </tr>)}
-    {!filtered.length && <tr><td colSpan={8} className="muted">No fixed assets recorded</td></tr>}
-    </tbody></table></div>}</Card>
+    {!filtered.length && <tr><td colSpan={9} className="muted">No fixed assets recorded</td></tr>}
+    </tbody></table></div>}<Pagination {...pageProps} noun="fixed assets" /></Card>
 
     <Modal open={open} onClose={() => setOpen(false)} title="Add Fixed Asset" width={720}>
       <form onSubmit={submit}>

@@ -49,39 +49,60 @@ def render_pdf(html: str) -> bytes:
             "or Google Chrome, or set UPVC_PDF_BROWSER to a browser executable."
         )
 
-    with tempfile.TemporaryDirectory(prefix="upvc-pdf-") as workdir:
-        work = Path(workdir)
-        source = work / "document.html"
-        target = work / "document.pdf"
-        # utf-8 so the rupee sign and any regional text survive the round trip.
-        source.write_text(html, encoding="utf-8")
+    # --headless=new is the modern flag; older builds only understand --headless.
+    # A browser instance is usually already running on the user's machine, and a
+    # cold spawn under that contention sometimes exits without rendering, so each
+    # attempt gets a fresh working directory and we retry before giving up.
+    # Two attempts only: a healthy machine succeeds on the first in ~2s, and a
+    # machine too short of RAM to start Chromium will not recover on a third try,
+    # so extra attempts just delay the caller's fallback.
+    attempts = ("--headless=new", "--headless")
+    last_detail = ""
+    for attempt, headless_flag in enumerate(attempts, 1):
+        # ignore_cleanup_errors: on Windows the browser can still hold a handle on
+        # its profile directory a moment after exit, and a PermissionError raised
+        # during cleanup would discard an already-good PDF.
+        with tempfile.TemporaryDirectory(prefix="upvc-pdf-", ignore_cleanup_errors=True) as workdir:
+            work = Path(workdir)
+            source = work / "document.html"
+            target = work / "document.pdf"
+            # utf-8 so the rupee sign and any regional text survive the round trip.
+            source.write_text(html, encoding="utf-8")
 
-        base_args = [
-            browser,
-            "--disable-gpu",
-            "--disable-extensions",
-            "--no-first-run",
-            "--no-default-browser-check",
-            # A throwaway profile keeps this from attaching to the user's open browser.
-            f"--user-data-dir={work / 'profile'}",
-            "--run-all-compositor-stages-before-draw",
-            "--virtual-time-budget=5000",
-            "--no-pdf-header-footer",
-            f"--print-to-pdf={target}",
-            source.as_uri(),
-        ]
+            args = [
+                browser,
+                headless_flag,
+                "--disable-gpu",
+                "--disable-extensions",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-background-networking",
+                "--disable-sync",
+                "--disable-dev-shm-usage",
+                # A throwaway profile keeps this from attaching to the user's open browser.
+                f"--user-data-dir={work / 'profile'}",
+                "--run-all-compositor-stages-before-draw",
+                "--virtual-time-budget=10000",
+                "--no-pdf-header-footer",
+                f"--print-to-pdf={target}",
+                source.as_uri(),
+            ]
+            try:
+                proc = subprocess.run(args, capture_output=True, timeout=120, check=False)
+                rc = proc.returncode
+            except subprocess.TimeoutExpired:
+                last_detail = f"attempt {attempt} ({headless_flag}) timed out"
+                continue
 
-        # --headless=new is the modern flag; older builds only understand --headless.
-        for headless_flag in ("--headless=new", "--headless"):
             if target.exists():
-                break
-            subprocess.run(
-                [base_args[0], headless_flag, *base_args[1:]],
-                capture_output=True,
-                timeout=60,
-                check=False,
-            )
+                data = target.read_bytes()
+                if data.startswith(b"%PDF"):
+                    return data
+                last_detail = f"attempt {attempt} wrote {len(data)} bytes that are not a PDF"
+            else:
+                last_detail = f"attempt {attempt} ({headless_flag}) exited rc={rc} without writing a PDF"
 
-        if not target.exists():
-            raise RuntimeError(f"Headless browser did not produce a PDF (browser: {browser})")
-        return target.read_bytes()
+    raise RuntimeError(
+        f"Headless browser did not produce a PDF after {len(attempts)} attempts "
+        f"(browser: {browser}; last: {last_detail})"
+    )

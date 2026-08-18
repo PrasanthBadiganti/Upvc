@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
 import { Card, Loading, PageHeader } from '../components/UI';
 import { ChartOfAccount, LedgerLine } from '../types';
 import { currency, shortDate } from '../utils';
+import Pagination, { usePagination } from '../components/Pagination';
 
 export default function AccountLedger() {
   const { id } = useParams();
@@ -35,9 +36,11 @@ export default function AccountLedger() {
 
   if (loading) return <Loading />;
 
+  const { pageRows, props: pageProps } = usePagination(rows);
+
   return <>
     <PageHeader title={account ? `${account.code} - ${account.name}` : 'Account Ledger'} subtitle={account ? `${account.account_type} / ${account.account_group}` : 'Ledger'} />
-    <Card className="list-card"><div className="table-wrap"><table className="data-table"><thead><tr><th>Date</th><th>Journal No.</th><th>Narration</th><th>Debit</th><th>Credit</th><th>Running Balance</th></tr></thead><tbody>{rows.map(line => <tr key={line.id}>
+    <Card className="list-card"><div className="table-wrap"><table className="data-table"><thead><tr><th>Date</th><th>Journal No.</th><th>Narration</th><th>Debit</th><th>Credit</th><th>Running Balance</th></tr></thead><tbody>{pageRows.map(line => <tr key={line.id}>
       <td>{shortDate(line.entry.entry_date)}</td>
       <td className="cell-title" style={{ cursor: 'pointer' }} onClick={() => navigate(`/journal/${line.entry.id}`)}>{line.entry.number}</td>
       <td>{line.entry.narration}</td>
@@ -46,6 +49,6 @@ export default function AccountLedger() {
       <td className="amount"><b>{currency(line.running, 2)}</b></td>
     </tr>)}
     {!rows.length && <tr><td colSpan={6} className="muted">No ledger activity for this account</td></tr>}
-    </tbody><tfoot><tr className="invoice-totals grand"><td colSpan={3} /><td className="amount">{currency(totals.debit, 2)}</td><td className="amount">{currency(totals.credit, 2)}</td><td /></tr></tfoot></table></div></Card>
+    </tbody><tfoot><tr className="invoice-totals grand"><td colSpan={3} /><td className="amount">{currency(totals.debit, 2)}</td><td className="amount">{currency(totals.credit, 2)}</td><td /></tr></tfoot></table></div><Pagination {...pageProps} noun="lines" /></Card>
   </>;
 }

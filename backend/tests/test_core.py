@@ -1,6 +1,7 @@
 import csv
 import io
 import os
+import re
 import xml.etree.ElementTree as ET
 from decimal import Decimal
 from pathlib import Path
@@ -572,7 +573,7 @@ def test_credit_note_reduces_balance_and_can_be_cancelled():
         cn = client.post(f"/api/invoices/{invoice['id']}/credit-notes", json=cn_payload)
         assert cn.status_code == 201, cn.text
         cn_json = cn.json()
-        assert cn_json["number"].startswith("CN-")
+        assert re.fullmatch(r"CN\d{2}-\d+", cn_json["number"]), cn_json["number"]
         assert cn_json["status"] == "Issued"
         expected_total = Decimal("1000") * Decimal("1.18")
         assert Decimal(cn_json["grand_total"]) == expected_total.quantize(Decimal("0.01"))
@@ -632,7 +633,7 @@ def test_debit_note_increases_balance_and_can_be_cancelled():
         })
         assert dn.status_code == 201, dn.text
         dn_json = dn.json()
-        assert dn_json["number"].startswith("DN-")
+        assert re.fullmatch(r"DN\d{2}-\d+", dn_json["number"]), dn_json["number"]
 
         updated_invoice = client.get(f"/api/invoices/{invoice['id']}").json()
         assert Decimal(updated_invoice["pending_balance"]) == pending_before + Decimal(dn_json["grand_total"])
@@ -726,7 +727,7 @@ def test_purchase_bill_create_and_record_payment():
     with TestClient(app) as client:
         vendor = _create_vendor(client, name="Glass Traders Co")
         bill = _create_purchase_bill(client, vendor["id"])
-        assert bill["number"].startswith("PB-")
+        assert re.fullmatch(r"PB\d{2}-\d+", bill["number"]), bill["number"]
         assert bill["status"] == "Unpaid"
         assert bill["items"][0]["hsn_code"] == "3925.20.00"
         expected_total = Decimal("12000") * Decimal("1.18")
@@ -2297,3 +2298,48 @@ def test_payment_without_bank_account_stays_optional():
         saved = payment.json()["payments"][0]
         assert saved["bank_account_id"] is None
         assert saved["bank_account"] is None
+
+
+def test_customer_code_stays_unique_after_a_delete():
+    """next_code() derives from the highest suffix, not a row count.
+
+    Counting rows reissues a code that is already taken as soon as anything is
+    deleted, and Customer.code is unique.
+    """
+    with TestClient(app) as client:
+        first = _create_customer(client, "Code Sequence A")
+        second = _create_customer(client, "Code Sequence B")
+        assert first["code"] != second["code"]
+
+        # No invoices, so this customer is safe to remove.
+        removed = client.delete(f"/api/customers/{first['id']}")
+        assert removed.status_code == 204, removed.text
+
+        third = _create_customer(client, "Code Sequence C")
+        assert third["code"] != second["code"]
+
+        customers = client.get("/api/customers").json()
+        codes = [c["code"] for c in customers]
+        assert len(codes) == len(set(codes)), f"duplicate customer codes: {codes}"
+
+
+def test_customer_with_invoices_cannot_be_deleted():
+    """Cascading an invoice away would strand its journal entries.
+
+    JournalEntry.source_id has no foreign key, so a deleted invoice leaves
+    unreconcilable A/R behind in the ledger.
+    """
+    with TestClient(app) as client:
+        customer = _create_customer(client, "Has Invoices Co")
+        invoice = _create_invoice_for_customer(client, customer["id"])
+        entries_before = _journal_entries_for(client, "Invoice", invoice["id"])
+        assert entries_before
+
+        blocked = client.delete(f"/api/customers/{customer['id']}")
+        assert blocked.status_code == 409, blocked.text
+        assert "cannot be deleted" in blocked.json()["detail"]
+
+        # Customer, invoice and ledger all survive the refused delete.
+        assert client.get(f"/api/customers/{customer['id']}/profile").status_code == 200
+        assert client.get(f"/api/invoices/{invoice['id']}").status_code == 200
+        assert _journal_entries_for(client, "Invoice", invoice["id"]) == entries_before

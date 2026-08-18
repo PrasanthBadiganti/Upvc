@@ -5,12 +5,15 @@ import { Button, Card, Field, Input, Loading, Modal, PageHeader } from '../compo
 import Status from '../components/Status';
 import { FinancialYear } from '../types';
 import { currency, shortDate } from '../utils';
+import { useConfirm } from '../contexts/ConfirmContext';
+import Pagination, { usePagination } from '../components/Pagination';
 
 type FyForm = { start_date: string; end_date: string; label: string };
 
 const blank: FyForm = { start_date: '', end_date: '', label: '' };
 
 export default function FinancialYears() {
+  const confirm = useConfirm();
   const [years, setYears] = useState<FinancialYear[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -40,7 +43,7 @@ export default function FinancialYears() {
   };
 
   const closeYear = async (fy: FinancialYear) => {
-    if (!window.confirm(`Close ${fy.label}? This computes a final P&L/Balance Sheet snapshot and blocks new or edited postings dated within ${shortDate(fy.start_date)} - ${shortDate(fy.end_date)}.`)) return;
+    if (!(await confirm({ title: `Close ${fy.label}?`, message: `This computes a final P&L / Balance Sheet snapshot and blocks new or edited postings dated within ${shortDate(fy.start_date)} - ${shortDate(fy.end_date)}.`, confirmLabel: 'Close year', cancelLabel: 'Not yet', isDangerous: true }))) return;
     setBusyId(fy.id);
     try {
       await api.post(`/financial-years/${fy.id}/close`);
@@ -53,7 +56,7 @@ export default function FinancialYears() {
   };
 
   const reopenYear = async (fy: FinancialYear) => {
-    if (!window.confirm(`Reopen ${fy.label}? This allows postings within this period again.`)) return;
+    if (!(await confirm({ title: `Reopen ${fy.label}?`, message: 'Postings dated within this period will be allowed again.', confirmLabel: 'Reopen year', cancelLabel: 'Leave closed' }))) return;
     setBusyId(fy.id);
     try {
       await api.post(`/financial-years/${fy.id}/reopen`);
@@ -65,9 +68,11 @@ export default function FinancialYears() {
     }
   };
 
+  const { pageRows, props: pageProps } = usePagination(years);
+
   return <>
     <PageHeader title="Financial Years" subtitle="Close a completed year to lock its books and snapshot its P&L / Balance Sheet" action={<Button onClick={showAdd}><CalendarPlus size={15} /> Add Financial Year</Button>} />
-    <Card className="list-card">{loading ? <Loading /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Financial Year</th><th>Period</th><th>Status</th><th>Total Income</th><th>Total Expense</th><th>Net Profit</th><th>Closed On</th><th>Action</th></tr></thead><tbody>{years.map(fy => <tr key={fy.id}>
+    <Card className="list-card">{loading ? <Loading /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Financial Year</th><th>Period</th><th>Status</th><th>Total Income</th><th>Total Expense</th><th>Net Profit</th><th>Closed On</th><th>Action</th></tr></thead><tbody>{pageRows.map(fy => <tr key={fy.id}>
       <td className="cell-title">{fy.label}</td>
       <td>{shortDate(fy.start_date)} - {shortDate(fy.end_date)}</td>
       <td><Status value={fy.status} /></td>
@@ -81,7 +86,7 @@ export default function FinancialYears() {
       </td>
     </tr>)}
     {!years.length && <tr><td colSpan={8} className="muted">No financial years set up yet</td></tr>}
-    </tbody></table></div>}</Card>
+    </tbody></table></div>}<Pagination {...pageProps} noun="years" /></Card>
 
     <Modal open={open} onClose={() => setOpen(false)} title="Add Financial Year" width={480}>
       <form onSubmit={submit}>

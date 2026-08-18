@@ -211,6 +211,7 @@ class Quotation(Base):
 
     customer: Mapped[Customer] = relationship(back_populates="quotations")
     items: Mapped[list["QuotationItem"]] = relationship(back_populates="quotation", cascade="all, delete-orphan")
+    charges: Mapped[list["QuotationCharge"]] = relationship(back_populates="quotation", cascade="all, delete-orphan")
     invoice: Mapped["Invoice | None"] = relationship(back_populates="quotation", uselist=False)
 
 
@@ -243,6 +244,25 @@ class QuotationItem(Base):
     quotation: Mapped[Quotation] = relationship(back_populates="items")
 
 
+class QuotationCharge(Base):
+    """Owner-defined extra charge on a quotation (transport, installation, loading...).
+
+    taxable=True adds the amount to the GST base, which is the normal treatment
+    for charges forming part of a composite supply. taxable=False keeps it out
+    of the GST base for pure reimbursements.
+    """
+
+    __tablename__ = "quotation_charges"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    quotation_id: Mapped[int] = mapped_column(ForeignKey("quotations.id"), index=True)
+    label: Mapped[str] = mapped_column(String(120))
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    taxable: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    quotation: Mapped[Quotation] = relationship(back_populates="charges")
+
+
 class Invoice(Base):
     __tablename__ = "invoices"
 
@@ -268,6 +288,7 @@ class Invoice(Base):
     quotation: Mapped[Quotation | None] = relationship(back_populates="invoice")
     customer: Mapped[Customer] = relationship(back_populates="invoices")
     items: Mapped[list["InvoiceItem"]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
+    charges: Mapped[list["InvoiceCharge"]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
     payments: Mapped[list["Payment"]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
 
 
@@ -286,6 +307,21 @@ class InvoiceItem(Base):
     hsn_code: Mapped[str] = mapped_column(String(20), default="")
 
     invoice: Mapped[Invoice] = relationship(back_populates="items")
+
+
+class InvoiceCharge(Base):
+    """Owner-defined extra charge on an invoice. Mirrors QuotationCharge and is
+    copied across when a quotation is converted."""
+
+    __tablename__ = "invoice_charges"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), index=True)
+    label: Mapped[str] = mapped_column(String(120))
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    taxable: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    invoice: Mapped[Invoice] = relationship(back_populates="charges")
 
 
 class CreditNote(Base):

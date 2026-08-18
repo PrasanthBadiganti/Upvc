@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell,
+  BookMarked,
   BookOpen,
   Boxes,
   Building2,
@@ -17,7 +18,6 @@ import {
   HandCoins,
   Landmark,
   LayoutDashboard,
-  Menu,
   PackageSearch,
   Percent,
   Receipt,
@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import api from '../api';
+import { Breadcrumbs, BreadcrumbItem } from './Breadcrumbs';
 import { BusinessSettings, Customer, Invoice, Quotation } from '../types';
 
 const navGroups = [
@@ -59,7 +60,7 @@ const navGroups = [
   { key: 'accounting', label: 'Accounting', items: [
     ['Bank Accounts', '/bank-accounts', Wallet],
     ['Chart of Accounts', '/accounts', BookOpen],
-    ['Journal', '/journal', ClipboardList],
+    ['Journal', '/journal', BookMarked],
     ['Trial Balance', '/trial-balance', Scale],
     ['Fixed Assets', '/fixed-assets', Building2],
     ['Financial Years', '/financial-years', CalendarClock],
@@ -70,7 +71,7 @@ const navGroups = [
     ['Balance Sheet', '/balance-sheet', Landmark],
     ['Cash Flow', '/cash-flow', Waves],
     ['AP Aging', '/ap-aging', Clock],
-    ['Reports', '/reports', TrendingUp],
+    ['Sales Performance', '/reports', TrendingUp],
   ] },
   { key: 'tools', label: 'Tools', items: [
     ['Tally Export', '/tally-export', FileArchive],
@@ -83,6 +84,32 @@ const navGroups = [
 
 const DEFAULT_EXPANDED_GROUPS = ['sales', 'products'];
 const SIDEBAR_STORAGE_KEY = 'upvc-sidebar-expanded-groups';
+
+const NAV_LABELS: Record<string, string> = {};
+for (const group of navGroups) {
+  for (const [label, path] of group.items) NAV_LABELS[path] = label;
+}
+
+const LEAF_LABELS: Record<string, string> = { new: 'New', edit: 'Edit', ledger: 'Ledger' };
+
+/**
+ * Detail pages have no other way back to their list, so give them a trail.
+ * List pages are already indicated by the active sidebar item and get none,
+ * which keeps the top of every page clean.
+ */
+function breadcrumbsFor(pathname: string): BreadcrumbItem[] {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments.length < 2) return [];
+  const base = `/${segments[0]}`;
+  const sectionLabel = NAV_LABELS[base];
+  if (!sectionLabel) return [];
+  const leaf = segments[segments.length - 1];
+  return [
+    { label: 'Dashboard', path: '/' },
+    { label: sectionLabel, path: base },
+    { label: LEAF_LABELS[leaf] ?? 'Details' },
+  ];
+}
 
 function renderNavItem([label, path, Icon]: readonly [string, string, typeof LayoutDashboard]) {
   return (
@@ -107,6 +134,9 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [business, setBusiness] = useState<BusinessSettings | null>(null);
+  // logo_path can outlive the file it points at (deleted upload, restored backup),
+  // so fall back to the brand mark rather than rendering a broken image.
+  const [logoBroken, setLogoBroken] = useState(false);
   const [overdueCount, setOverdueCount] = useState(0);
   const [allInvoices, setAllInvoices] = useState<Invoice[]>([]);
   const [allQuotations, setAllQuotations] = useState<Quotation[]>([]);
@@ -173,6 +203,7 @@ export default function Layout() {
 
   const goTo = (path: string) => { navigate(path); setQuery(''); setResults(emptyResults); setSearchOpen(false); searchInputRef.current?.blur(); };
 
+  const crumbs = useMemo(() => breadcrumbsFor(location.pathname), [location.pathname]);
   const today = useMemo(() => new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }), []);
   const companyName = business?.company_name || 'Your Business';
   const companyTagline = business?.tagline || '';
@@ -181,8 +212,13 @@ export default function Layout() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          {business?.logo_path ? (
-            <img src={`${business.logo_path}?v=${encodeURIComponent(business.updated_at)}`} alt="Business logo" className="brand-logo" />
+          {business?.logo_path && !logoBroken ? (
+            <img
+              src={`${business.logo_path}?v=${encodeURIComponent(business.updated_at)}`}
+              alt={`${business.company_name} logo`}
+              className="brand-logo"
+              onError={() => setLogoBroken(true)}
+            />
           ) : (
             <>
               <div className="brand-mark"><span /><span /></div>
@@ -217,7 +253,6 @@ export default function Layout() {
 
       <section className="main-shell">
         <header className="topbar">
-          <button className="icon-btn ghost"><Menu size={21} /></button>
           <div className="global-search" style={{ position: 'relative' }}>
             <Search size={18} />
             <input
@@ -260,8 +295,11 @@ export default function Layout() {
             {overdueCount > 0 && <em>{overdueCount > 9 ? '9+' : overdueCount}</em>}
           </button>
         </header>
-        <main className="page-content"><Outlet /></main>
-        <footer className="footer"><span>&copy; {new Date().getFullYear()} {companyName}. All rights reserved.</span><span>Privacy Policy&nbsp;&nbsp;&nbsp;&nbsp; Terms of Service</span></footer>
+        <main className="page-content">
+          {crumbs.length > 0 && <Breadcrumbs items={crumbs} />}
+          <Outlet />
+        </main>
+        <footer className="footer"><span>&copy; {new Date().getFullYear()} {companyName}. All rights reserved.</span></footer>
       </section>
     </div>
   );

@@ -45,7 +45,10 @@ a { color: inherit; text-decoration: none; }
 .company-chevron { transform: rotate(90deg); color: #678; }
 .window-thumb { width: 50px; height: 62px; border: 2px solid #98a6b8; display: flex; gap: 3px; padding: 4px; background: linear-gradient(135deg,#dff2ff,#fff8e9); }
 .window-thumb i { flex: 1; border: 1px solid #7191ae; background: linear-gradient(180deg,#bde6ff,#f7fbff); }
-.main-shell { margin-left: 238px; width: calc(100% - 238px); min-height: 100vh; display: flex; flex-direction: column; }
+/* height (not min-height) + hidden overflow gives the flex chain below a real
+   ceiling, so .page-content -> .list-card -> .table-wrap can size to the
+   window. Without a bounded ancestor those flex:1 rules have nothing to fill. */
+.main-shell { margin-left: 238px; width: calc(100% - 238px); height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
 .topbar { height: 60px; background: #fff; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; padding: 0 20px; position: sticky; top: 0; z-index: 15; }
 .icon-btn { width: 38px; height: 38px; border-radius: 8px; border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center; background: #fff; color: #2e4263; }
 .icon-btn.ghost { border-color: transparent; background: transparent; }
@@ -68,6 +71,12 @@ kbd { font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 4px 7p
 .page-content { flex: 1; padding: 8px 20px 16px; }
 .footer { height: 48px; border-top: 1px solid var(--border); padding: 0 28px; display: flex; align-items: center; justify-content: space-between; color: #60708a; font-size: 12.5px; background: #fff; }
 .page-header { min-height: 48px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-top: 0; }
+/* Title, toolbar and primary action share one row on list pages. */
+.page-header.with-toolbar { align-items: center; gap: 14px; min-height: 52px; }
+.page-header.with-toolbar .page-header-titles { flex: 0 0 auto; }
+.page-header.with-toolbar .page-header-titles p { display: none; }
+.page-header-toolbar { flex: 1 1 auto; display: flex; align-items: center; gap: 10px; justify-content: flex-end; min-width: 0; }
+.page-header-toolbar .search-box { flex: 0 1 380px; min-width: 200px; }
 .page-header h1 { margin: 0; font-size: 24px; line-height: 1.1; letter-spacing: -.35px; }
 .page-header p { margin: 3px 0 0; font-size: 12.5px; color: #60708a; }
 .card { background: #fff; border: 1px solid var(--border); border-radius: 11px; box-shadow: 0 1px 3px rgba(15,23,42,.018); }
@@ -106,13 +115,16 @@ textarea.input { height: auto; min-height: 82px; padding-top: 10px; resize: vert
 .metric-copy { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
 .metric-copy small { color: #33425d; font-size: 11.5px; line-height: 1.2; }
 .metric-copy strong { font-size: 18px; margin-top: 0; letter-spacing: -.25px; white-space: nowrap; }
-.metric-copy span { font-size: 11px; margin-top: 0; color: #60708a; }
+.metric-copy span { font-size: 11.5px; margin-top: 0; color: #60708a; }
 .metric-copy .positive::before { content: '+ '; color: #0caf74; }
 .metric-copy .negative::before { content: '- '; color: #ef4444; }
 .table-wrap { overflow-x: auto; }
 table.data-table { width: 100%; border-collapse: collapse; }
 table.data-table th { height: 34px; text-align: left; padding: 0 10px; color: #40506a; font-size: 12.5px; font-weight: 700; background: #fbfcfe; border-bottom: 1px solid var(--border); white-space: nowrap; }
-table.data-table td { min-height: 36px; padding: 8px 10px; border-bottom: 1px solid #edf1f5; font-size: 13px; vertical-align: middle; color: #233554; }
+/* Row height is driven by the tallest cell content, not the text. Padding is
+   trimmed here and .mini-button shrunk to match, so more rows fit per screen
+   without dropping the 13px cell type. */
+table.data-table td { min-height: 30px; padding: 5px 10px; border-bottom: 1px solid #edf1f5; font-size: 13px; vertical-align: middle; color: #233554; }
 table.data-table tr:last-child td { border-bottom: 0; }
 table.data-table tbody tr:hover { background: #fafcff; }
 table.data-table .selected-row { background: #f7fbff; outline: 1px solid #8ab1ff; outline-offset: -1px; }
@@ -127,10 +139,10 @@ table.data-table .selected-row { background: #f7fbff; outline: 1px solid #8ab1ff
 .search-box { height: 36px; border: 1px solid #dbe3ed; border-radius: 7px; display: flex; align-items: center; gap: 8px; padding: 0 10px; min-width: 260px; background: #fff; }
 .search-box input { width: 100%; border: 0; outline: 0; font-size: 13px; }
 .search-box svg { color: #6c7b91; }
-.pagination { height: 58px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; color: #60708a; font-size: 12.5px; }
-.pagination-controls { display: flex; gap: 8px; align-items: center; }
-.page-chip { min-width: 33px; height: 33px; border: 1px solid var(--border); border-radius: 7px; background: #fff; color: #2e4263; }
-.page-chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.pagination { height: 44px; display: flex; align-items: center; padding: 0 12px; color: #60708a; font-size: 12.5px; border-top: 1px solid var(--border); }
+.cell-with-icon { display: flex; align-items: center; gap: 9px; }
+.summary-line.charge-row { display: flex; align-items: center; gap: 6px; }
+.charge-gst { display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: #60708a; white-space: nowrap; cursor: pointer; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 100; background: rgba(15,23,42,.42); display: flex; align-items: center; justify-content: center; padding: 20px; }
 .modal { max-height: 92vh; background: #fff; border-radius: 13px; box-shadow: 0 24px 70px rgba(15,23,42,.25); overflow: hidden; max-width: 100%; width: 100%; }
 .modal-head { min-height: 52px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); padding: 0 16px; flex-shrink: 0; }
@@ -154,6 +166,7 @@ table.data-table .selected-row { background: #f7fbff; outline: 1px solid #8ab1ff
 .chart-title { height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 6px; }
 .chart-title h3 { font-size: 13.5px; margin: 0; }
 .chart-legend { display: flex; gap: 16px; color: #60708a; font-size: 12.5px; }
+.chart-period { color: #60708a; font-size: 12.5px; white-space: nowrap; }
 .legend-dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-right: 5px; }
 .donut-layout { display: grid; grid-template-columns: 1fr 1fr; align-items: center; height: 220px; }
 .donut-legend { display: flex; flex-direction: column; gap: 18px; }
@@ -244,7 +257,7 @@ table.data-table .selected-row { background: #f7fbff; outline: 1px solid #8ab1ff
 .list-toolbar .search-box { flex: 1; max-width: 420px; }
 .list-card { overflow: hidden; }
 .action-group { display: flex; gap: 6px; align-items: center; }
-.mini-button { width: 30px; height: 30px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: #2c5fb4; display: inline-flex; align-items: center; justify-content: center; }
+.mini-button { width: 24px; height: 24px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: #2c5fb4; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
 
 /* Invoice */
 .invoice-badge { margin: -3px 0 12px; }
@@ -352,4 +365,121 @@ table.data-table .selected-row { background: #f7fbff; outline: 1px solid #8ab1ff
   .main-shell { margin:0; width:100%; }
   .page-content { padding:0; }
   body { background:#fff; }
+}
+
+/* Wide list tables: one value per column rather than stacked pairs. Short
+   fields never wrap; long ones (email, site) may, so rows stay one line where
+   it matters. The table-wrap scrolls horizontally on narrow screens. */
+.data-table td.nowrap, .data-table th.num { white-space: nowrap; }
+.data-table th.num { text-align: right; }
+.customers-table th, .customers-table td { padding-left: 9px; padding-right: 9px; }
+/* Keep every cell to a single line: a wrapped email or site name was doubling
+   the row height. Full values remain in the detail window and the title tip. */
+.customers-table td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 230px; }
+.customers-table td b { font-weight: 700; }
+.customers-table th:nth-child(2), .customers-table td:nth-child(2) { min-width: 150px; }
+.customers-table th:nth-child(4), .customers-table td:nth-child(4) { min-width: 160px; }
+.customers-table th:nth-child(6), .customers-table td:nth-child(6) { min-width: 130px; }
+
+/* ── Static page, scrolling table ─────────────────────────────────────────
+   Every list page wraps its table in .table-wrap, so capping the height here
+   makes the page itself stop scrolling: the header, toolbar and pagination
+   footer stay put while only the rows move - vertically, and horizontally
+   when a table is wider than the viewport. The header row stays pinned. */
+/* Flex chain: page-content -> list-card -> table-wrap. Each one gives its
+   height to the next, so the table grows to the bottom of the window whatever
+   sits above it (header, toolbar, filters) - no hard-coded offset. */
+/* Detail pages are taller than the window, so this scrolls internally - which
+   also keeps the sidebar and topbar fixed. List pages fit, so it never scrolls
+   there and the table owns the scrolling instead. */
+.page-content { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+.list-card { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.table-wrap {
+  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 160px;
+}
+.table-wrap table.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fbfcfe;                     /* opaque, or rows show through */
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+/* The page shell itself never scrolls - only the table body does. */
+.page-content { overflow: visible; }
+
+/* Pagination footer */
+.pagination { justify-content: space-between; }
+.pagination-controls { display: flex; gap: 6px; align-items: center; }
+.page-chip {
+  min-width: 27px; height: 27px; padding: 0 7px; border: 1px solid var(--border);
+  border-radius: 6px; background: #fff; color: #2e4263; font-size: 12.5px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.page-chip:hover:not(:disabled) { background: #f4f8ff; border-color: #b9d0fb; }
+.page-chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.page-chip:disabled { opacity: .4; cursor: not-allowed; }
+.page-gap { color: #94a3b8; font-size: 12.5px; padding: 0 2px; }
+.page-size { width: 104px; height: 27px; padding: 0 6px; font-size: 12.5px; }
+
+/* ── Printable documents ──────────────────────────────────────────────────
+   The A4 quotation/invoice lives hidden in the DOM until the user prints.
+   Styling mirrors quotation_template_final_a4.html so what prints IS the
+   template - no server render, no PDF library. See lib/print.ts. */
+.print-portal { display: none; }
+
+.a4-doc { width: 210mm; background: #fff; padding: 12mm; box-sizing: border-box;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; }
+.doc-header { display: flex; justify-content: space-between; align-items: flex-start;
+  border-bottom: 2px solid #0d47a1; padding-bottom: 15px; margin-bottom: 15px; }
+.doc-logo { width: 120px; height: 60px; background: #e8eef7; border: 2px dashed #0d47a1;
+  display: flex; align-items: center; justify-content: center; font-size: 10px;
+  color: #666; border-radius: 4px; flex-shrink: 0; }
+.doc-logo.has-logo { background: none; border: none; }
+.doc-logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.doc-company { text-align: right; font-size: 12px; }
+.doc-company-name { font-size: 16px; font-weight: 700; color: #0d47a1; margin-bottom: 3px; }
+.doc-company-details { font-size: 10px; color: #666; line-height: 1.4; }
+.doc-title { font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #1a1a1a; }
+.doc-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+  margin-bottom: 12px; font-size: 11px; }
+.doc-card { background: #f5f5f5; padding: 10px; border-radius: 4px; }
+.doc-card-label { font-weight: 600; color: #333; margin-bottom: 4px; font-size: 10px; }
+.doc-card-value { color: #666; line-height: 1.5; }
+.doc-detail-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.doc-detail-row span:last-child { font-weight: 600; }
+.doc-table { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 8px; }
+.doc-table th { background: #0d47a1; color: #fff; padding: 6px; text-align: left;
+  font-weight: 600; border: none; }
+.doc-table td { padding: 6px; border-bottom: 1px solid #eee; }
+.doc-table tr:last-child td { border-bottom: 2px solid #0d47a1; }
+.doc-item-sub { color: #666; font-size: 9px; margin-top: 2px; }
+.doc-table .c-num { width: 30px; text-align: center; }
+.doc-table .c-hsn, .doc-table .c-unit { width: 40px; }
+.doc-table .c-qty, .doc-table .c-rate, .doc-table .c-amt { text-align: right; }
+.doc-table .c-qty { width: 45px; } .doc-table .c-rate, .doc-table .c-amt { width: 55px; }
+.doc-summary { margin-top: 10px; }
+.doc-summary-row { display: flex; justify-content: space-between; padding: 4px 0;
+  font-size: 11px; border-bottom: 1px solid #eee; font-weight: 500; color: #333; }
+.doc-summary-row.doc-discount, .doc-summary-row.doc-discount span { color: #d32f2f; }
+.doc-summary-row.doc-total { border-top: 2px solid #0d47a1; border-bottom: 2px solid #0d47a1;
+  padding: 6px 0; font-size: 12px; font-weight: 700; }
+.doc-footer { margin-top: 10px; font-size: 9px; color: #666;
+  border-top: 1px solid #ddd; padding-top: 8px; }
+.doc-bank-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+  margin-top: 12px; font-size: 11px; }
+.doc-sign { text-align: right; font-size: 11px; color: #333; }
+.doc-sign-line { margin-top: 34px; padding-top: 4px; border-top: 1px solid #999;
+  display: inline-block; min-width: 55mm; text-align: center; font-size: 9px; color: #666; }
+
+@media print {
+  /* Hide the app shell; only the portal reaches the paper. */
+  body.printing-a4 #root { display: none !important; }
+  body.printing-a4 .print-portal { display: block; }
+  .a4-doc { width: auto; padding: 0; }
+  .doc-table { page-break-inside: auto; }
+  .doc-table tr { page-break-inside: avoid; }
+  .doc-table thead { display: table-header-group; }
+  .doc-summary, .doc-bank-row { page-break-inside: avoid; }
 }

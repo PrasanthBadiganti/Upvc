@@ -17,8 +17,19 @@ def money(value: Decimal | int | float | str) -> Decimal:
 
 
 def next_code(db: Session, model: type, prefix: str) -> str:
-    count = db.scalar(select(func.count()).select_from(model)) or 0
-    return f"{prefix}-{count + 1:04d}"
+    """Next sequential code for a model, e.g. CUST-0004.
+
+    Derived from the highest existing suffix rather than a row count, so codes
+    stay unique after rows are deleted. Imported codes that do not end in digits
+    are skipped rather than breaking the sequence.
+    """
+    codes = db.scalars(select(model.code).where(model.code.like(f"{prefix}-%"))).all()
+    highest = 0
+    for code in codes:
+        suffix = (code or "").rsplit("-", 1)[-1]
+        if suffix.isdigit():
+            highest = max(highest, int(suffix))
+    return f"{prefix}-{highest + 1:04d}"
 
 
 def next_sequence_number(db: Session, model: type) -> int:
@@ -53,6 +64,14 @@ def apply_quotation_payload(db: Session, quote: models.Quotation, payload: Quota
     quote.discount = money(payload.discount)
     quote.notes = payload.notes
     quote.items.clear()
+    quote.charges.clear()
+    for charge in payload.charges:
+        label = (charge.label or "").strip()
+        if not label or money(charge.amount) == 0:
+            continue  # ignore blank rows left behind in the UI
+        quote.charges.append(models.QuotationCharge(
+            label=label, amount=money(charge.amount), taxable=charge.taxable,
+        ))
 
     subtotal = Decimal("0")
     for item in payload.items:
@@ -91,9 +110,13 @@ def apply_quotation_payload(db: Session, quote: models.Quotation, payload: Quota
             )
         )
 
-    taxable = subtotal + quote.transport - quote.discount
+    # Charges forming part of a composite supply are taxed with it; anything
+    # flagged non-taxable (pure reimbursements) is added after GST instead.
+    taxable_charges = sum((c.amount for c in quote.charges if c.taxable), Decimal("0"))
+    exempt_charges = sum((c.amount for c in quote.charges if not c.taxable), Decimal("0"))
+    taxable = subtotal + quote.transport + taxable_charges - quote.discount
     gst = money(taxable * gst_rate / Decimal("100"))
-    grand = money(taxable + gst)
+    grand = money(taxable + gst + exempt_charges)
     advance = money(grand * Decimal("0.50"))
     quote.subtotal = money(subtotal)
     quote.gst = gst
@@ -160,6 +183,10 @@ def duplicate_quotation(db: Session, quotation_id: int, revision: bool = False) 
         transport=quote.transport,
         discount=quote.discount,
         notes=(f"Revision of {quote.number}. {quote.notes}".strip() if revision else f"Duplicated from {quote.number}. {quote.notes}".strip()),
+        charges=[
+            {"label": c.label, "amount": c.amount, "taxable": c.taxable}
+            for c in quote.charges
+        ],
         items=[
             {
                 "catalog_item_id": item.catalog_item_id,
@@ -193,7 +220,11 @@ def get_quotation(db: Session, quotation_id: int) -> models.Quotation:
     stmt = (
         select(models.Quotation)
         .where(models.Quotation.id == quotation_id)
-        .options(selectinload(models.Quotation.items), joinedload(models.Quotation.customer))
+        .options(
+            selectinload(models.Quotation.items),
+            selectinload(models.Quotation.charges),
+            joinedload(models.Quotation.customer),
+        )
     )
     return db.scalars(stmt).unique().one()
 
@@ -204,9 +235,11 @@ def get_invoice(db: Session, invoice_id: int) -> models.Invoice:
         .where(models.Invoice.id == invoice_id)
         .options(
             selectinload(models.Invoice.items),
+            selectinload(models.Invoice.charges),
             selectinload(models.Invoice.payments).joinedload(models.Payment.bank_account),
             joinedload(models.Invoice.customer),
             joinedload(models.Invoice.quotation).selectinload(models.Quotation.items),
+            joinedload(models.Invoice.quotation).selectinload(models.Quotation.charges),
             joinedload(models.Invoice.quotation).joinedload(models.Quotation.customer),
         )
     )
@@ -252,6 +285,10 @@ def convert_quotation_to_invoice(db: Session, quotation_id: int) -> models.Invoi
         paid_amount=Decimal("0"),
         pending_balance=money(quote.grand_total),
     )
+    for charge in quote.charges:
+        invoice.charges.append(models.InvoiceCharge(
+            label=charge.label, amount=money(charge.amount), taxable=charge.taxable,
+        ))
     for item in quote.items:
         description = f"{item.category} {item.style} {int(item.width_mm)}x{int(item.height_mm)}mm".strip()
         invoice.items.append(

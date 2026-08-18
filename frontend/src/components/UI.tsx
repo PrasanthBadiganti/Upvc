@@ -5,10 +5,18 @@ export function Card({ children, className = '', ...props }: React.HTMLAttribute
   return <section className={`card ${className}`} {...props}>{children}</section>;
 }
 
-export function PageHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: ReactNode }) {
+/**
+ * `toolbar` (search, filters, refresh) sits on the same line as the title and
+ * the primary action, so a list page spends one row on its chrome instead of
+ * two. Pages with no toolbar are unaffected.
+ */
+export function PageHeader({ title, subtitle, toolbar, action }: {
+  title: string; subtitle?: string; toolbar?: ReactNode; action?: ReactNode;
+}) {
   return (
-    <div className="page-header">
-      <div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
+    <div className={`page-header${toolbar ? ' with-toolbar' : ''}`}>
+      <div className="page-header-titles"><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
+      {toolbar && <div className="page-header-toolbar">{toolbar}</div>}
       {action}
     </div>
   );

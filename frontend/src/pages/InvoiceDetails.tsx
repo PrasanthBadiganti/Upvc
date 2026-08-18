@@ -4,8 +4,11 @@ import { useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
 import { Button, Card, Field, Input, Loading, Modal, PageHeader, Select } from '../components/UI';
 import Status from '../components/Status';
-import { BankAccount, Invoice, NoteItem } from '../types';
+import { BankAccount, BusinessSettings, Invoice, NoteItem } from '../types';
+import { InvoicePrintDoc } from '../components/PrintDocument';
+import { printDocument } from '../lib/print';
 import { currency, shortDate } from '../utils';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 const noteItemFromInvoiceItem = (item: Invoice['items'][number]): NoteItem => ({
   description: item.description,
@@ -19,15 +22,18 @@ const noteItemFromInvoiceItem = (item: Invoice['items'][number]): NoteItem => ({
 });
 
 export default function InvoiceDetails(){
+  const confirm = useConfirm();
   const navigate=useNavigate();
   const {id}=useParams(); const [invoice,setInvoice]=useState<Invoice|null>(null); const [open,setOpen]=useState(false); const [saving,setSaving]=useState(false);
   const [payment,setPayment]=useState<{payment_date:string;mode:string;reference_number:string;amount:number;received_by:string;notes:string;bank_account_id:number|null}>({payment_date:new Date().toISOString().slice(0,10),mode:'NEFT',reference_number:'',amount:0,received_by:'Arun Verma',notes:'',bank_account_id:null});
   const [bankAccounts,setBankAccounts]=useState<BankAccount[]>([]);
+  const [business,setBusiness]=useState<BusinessSettings|null>(null);
   const [noteType,setNoteType]=useState<'credit'|'debit'|null>(null);
   const [noteForm,setNoteForm]=useState<{note_date:string;reason:string;items:NoteItem[]}>({note_date:new Date().toISOString().slice(0,10),reason:'',items:[]});
   const [noteSaving,setNoteSaving]=useState(false);
   const load=()=>api.get(`/invoices/${id}`).then(r=>{setInvoice(r.data);setPayment(p=>({...p,amount:Number(r.data.pending_balance)}));}); useEffect(()=>{load();},[id]);
   useEffect(()=>{api.get('/bank-accounts',{params:{status:'Active'}}).then(r=>setBankAccounts(r.data));},[]);
+  useEffect(()=>{api.get('/business-settings').then(r=>setBusiness(r.data));},[]);
   const noteTotals=useMemo(()=>{
     const subtotal=noteForm.items.reduce((s,i)=>s+Number(i.amount||0),0);
     const gst=noteForm.items.reduce((s,i)=>s+Number(i.amount||0)*Number(i.gst_percent||0)/100,0);
@@ -35,11 +41,11 @@ export default function InvoiceDetails(){
   },[noteForm.items]);
   if(!invoice)return <Loading/>;
   const submit=async(e:FormEvent)=>{e.preventDefault();setSaving(true);try{const {data}=await api.post(`/invoices/${invoice.id}/payments`,payment);setInvoice(data);setOpen(false);}finally{setSaving(false)}};
-  const download=()=>{const a=document.createElement('a');a.href=`/api/invoices/${invoice.id}/pdf`;a.download=`${invoice.number}.pdf`;a.click();};
+  const download=()=>printDocument(`Invoice ${invoice!.number}`);
   const receipt=(paymentId:number)=>{const a=document.createElement('a');a.href=`/api/payments/${paymentId}/receipt`;a.download=`Receipt-${invoice.number}-${paymentId}.pdf`;a.click();};
   const share=async()=>{await navigator.clipboard.writeText(`${window.location.origin}/invoices/${invoice.id}`);alert('Invoice link copied');};
   const cancelled=invoice.status==='Cancelled';
-  const cancel=async()=>{const paid=invoice.status==='Paid';if(!window.confirm(paid?'This invoice is fully paid. Cancel it anyway?':'Cancel this invoice?'))return;const {data}=await api.post(`/invoices/${invoice.id}/cancel`,null,{params:{force:paid}});setInvoice(data);};
+  const cancel=async()=>{const paid=invoice.status==='Paid';if(!(await confirm({title:`Cancel ${invoice.number}?`,message:paid?'This invoice is fully paid. Cancelling it will reverse the posting and clear the receivable.':'A reversing entry will be posted to the ledger.',confirmLabel:paid?'Cancel anyway':'Cancel invoice',cancelLabel:'Keep it',isDangerous:true})))return;const {data}=await api.post(`/invoices/${invoice.id}/cancel`,null,{params:{force:paid}});setInvoice(data);};
   const reopen=async()=>{const {data}=await api.post(`/invoices/${invoice.id}/reopen`);setInvoice(data);};
   const dueDate=new Date(`${invoice.due_date}T00:00:00`);
   const today=new Date(); today.setHours(0,0,0,0);
@@ -79,9 +85,9 @@ export default function InvoiceDetails(){
     </div>
     <div className="invoice-layout">
       <div className="invoice-left">
-        <Card className="invoice-table-card"><div className="card-head"><h3>Invoice Items Summary</h3></div><div className="table-wrap"><table className="data-table"><thead><tr><th>#</th><th>Item Description</th><th>HSN</th><th>Category</th><th>Unit</th><th>Qty</th><th>Rate (Rs.)</th><th>GST %</th><th>Amount (Rs.)</th></tr></thead><tbody>{invoice.items.map((item,i)=><tr key={item.id}><td>{i+1}</td><td>{item.description}</td><td>{item.hsn_code || '--'}</td><td>{item.category}</td><td>{item.unit}</td><td>{item.quantity}</td><td className="amount">{Number(item.rate).toLocaleString('en-IN',{minimumFractionDigits:2})}</td><td>{item.gst_percent}%</td><td className="amount">{Number(item.amount).toLocaleString('en-IN',{minimumFractionDigits:2})}</td></tr>)}<tr className="invoice-totals"><td colSpan={7}/><td>Subtotal</td><td className="amount">{currency(invoice.subtotal,2)}</td></tr>{Number(invoice.transport)!==0&&<tr className="invoice-totals"><td colSpan={7}/><td>Transport</td><td className="amount">{currency(invoice.transport,2)}</td></tr>}{Number(invoice.discount)!==0&&<tr className="invoice-totals"><td colSpan={7}/><td>Discount</td><td className="amount">-{currency(invoice.discount,2)}</td></tr>}{Number(invoice.igst)>0?<tr className="invoice-totals"><td colSpan={7}/><td>IGST</td><td className="amount">{currency(invoice.igst,2)}</td></tr>:<><tr className="invoice-totals"><td colSpan={7}/><td>CGST (9%)</td><td className="amount">{currency(invoice.cgst,2)}</td></tr><tr className="invoice-totals"><td colSpan={7}/><td>SGST (9%)</td><td className="amount">{currency(invoice.sgst,2)}</td></tr></>}<tr className="invoice-totals grand"><td colSpan={7}/><td>Grand Total</td><td className="amount">{currency(invoice.grand_total,2)}</td></tr></tbody></table></div></Card>
+        <Card className="invoice-table-card"><div className="card-head"><h3>Invoice Items Summary</h3></div><div className="table-wrap"><table className="data-table"><thead><tr><th>#</th><th>Item Description</th><th>HSN</th><th>Category</th><th>Unit</th><th>Qty</th><th>Rate (Rs.)</th><th>GST %</th><th>Amount (Rs.)</th></tr></thead><tbody>{invoice.items.map((item,i)=><tr key={item.id}><td>{i+1}</td><td>{item.description}</td><td>{item.hsn_code || '--'}</td><td>{item.category}</td><td>{item.unit}</td><td>{item.quantity}</td><td className="amount">{Number(item.rate).toLocaleString('en-IN',{minimumFractionDigits:2})}</td><td>{item.gst_percent}%</td><td className="amount">{Number(item.amount).toLocaleString('en-IN',{minimumFractionDigits:2})}</td></tr>)}<tr className="invoice-totals"><td colSpan={7}/><td>Subtotal</td><td className="amount">{currency(invoice.subtotal,2)}</td></tr>{Number(invoice.transport)!==0&&<tr className="invoice-totals"><td colSpan={7}/><td>Transport</td><td className="amount">{currency(invoice.transport,2)}</td></tr>}{(invoice.charges??[]).map(ch=><tr className="invoice-totals" key={ch.id}><td colSpan={7}/><td>{ch.label}{!ch.taxable&&<span className="muted"> (no GST)</span>}</td><td className="amount">{currency(ch.amount,2)}</td></tr>)}{Number(invoice.discount)!==0&&<tr className="invoice-totals"><td colSpan={7}/><td>Discount</td><td className="amount">-{currency(invoice.discount,2)}</td></tr>}{Number(invoice.igst)>0?<tr className="invoice-totals"><td colSpan={7}/><td>IGST</td><td className="amount">{currency(invoice.igst,2)}</td></tr>:<><tr className="invoice-totals"><td colSpan={7}/><td>CGST (9%)</td><td className="amount">{currency(invoice.cgst,2)}</td></tr><tr className="invoice-totals"><td colSpan={7}/><td>SGST (9%)</td><td className="amount">{currency(invoice.sgst,2)}</td></tr></>}<tr className="invoice-totals grand"><td colSpan={7}/><td>Grand Total</td><td className="amount">{currency(invoice.grand_total,2)}</td></tr></tbody></table></div></Card>
         <Card className="invoice-table-card"><div className="card-head"><h3>Payment History</h3></div><div className="table-wrap"><table className="data-table"><thead><tr><th>#</th><th>Payment Date</th><th>Mode of Payment</th><th>Bank Account</th><th>Reference No.</th><th>Amount (Rs.)</th><th>Received By</th><th>Notes</th><th>Receipt</th></tr></thead><tbody>{invoice.payments.length?invoice.payments.map((p,i)=><tr key={p.id}><td>{i+1}</td><td>{shortDate(p.payment_date)}</td><td>{p.mode}</td><td>{p.bank_account?.name || '--'}</td><td>{p.reference_number}</td><td className="amount">{currency(p.amount,2)}</td><td>{p.received_by}</td><td>{p.notes}</td><td><button className="mini-button" title="Download receipt" onClick={()=>receipt(p.id)}><Download size={14}/></button></td></tr>):<tr><td colSpan={9} className="muted">No payments recorded</td></tr>}</tbody></table></div></Card>
-        <div className="invoice-actions"><Button onClick={()=>setOpen(true)} disabled={cancelled||Number(invoice.pending_balance)<=0}>+ Record Payment</Button><Button tone="secondary" onClick={()=>openNote('credit')} disabled={cancelled||Number(invoice.pending_balance)<=0}><FileMinus size={15}/> Create Credit Note</Button><Button tone="secondary" onClick={()=>openNote('debit')} disabled={cancelled}><FilePlus2 size={15}/> Create Debit Note</Button><Button tone="secondary" onClick={()=>window.print()}><Printer size={15}/> Print Invoice</Button><Button tone="secondary" onClick={download}><Download size={15}/> Download PDF</Button><Button tone="secondary" onClick={share}><Share2 size={15}/> Share Invoice</Button></div>
+        <div className="invoice-actions"><Button onClick={()=>setOpen(true)} disabled={cancelled||Number(invoice.pending_balance)<=0}>+ Record Payment</Button><Button tone="secondary" onClick={()=>openNote('credit')} disabled={cancelled||Number(invoice.pending_balance)<=0}><FileMinus size={15}/> Create Credit Note</Button><Button tone="secondary" onClick={()=>openNote('debit')} disabled={cancelled}><FilePlus2 size={15}/> Create Debit Note</Button><Button tone="secondary" onClick={download}><Printer size={15}/> Print Invoice</Button><Button tone="secondary" onClick={download}><Download size={15}/> Download PDF</Button><Button tone="secondary" onClick={share}><Share2 size={15}/> Share Invoice</Button></div>
       </div>
       <aside>
         <Card className="payment-summary"><h3>Payment Summary</h3><div className="payment-number"><span>Grand Total</span><strong style={{color:'#1561ec'}}>{currency(invoice.grand_total,2)}</strong></div><div className="payment-number green"><span>Paid Amount</span><strong>{currency(invoice.paid_amount,2)}</strong></div><div className="payment-number red"><span>Pending Balance</span><strong>{currency(invoice.pending_balance,2)}</strong></div><hr style={{border:0,borderTop:'1px solid #e2e8f0'}}/><div className="payment-number"><span>Payment Due</span><b>{shortDate(invoice.due_date)}</b></div><div className="payment-number"><span>Collection Status</span><strong>{dueStatus}</strong></div></Card>
@@ -109,5 +115,6 @@ export default function InvoiceDetails(){
         <div className="form-actions"><Button type="button" tone="secondary" onClick={()=>setNoteType(null)}>Cancel</Button><Button type="submit" disabled={noteSaving}>{`Issue ${noteType==='credit'?'Credit':'Debit'} Note`}</Button></div>
       </form>
     </Modal>
+  {business && <InvoicePrintDoc invoice={invoice} business={business} />}
   </>;
 }

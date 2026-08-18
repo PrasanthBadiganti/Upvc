@@ -6,14 +6,16 @@ import { Button, Card, Loading, PageHeader } from '../components/UI';
 import Status from '../components/Status';
 import { DebitNote } from '../types';
 import { currency, shortDate } from '../utils';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 export default function DebitNoteDetails(){
+  const confirm = useConfirm();
   const {id}=useParams(); const [note,setNote]=useState<DebitNote|null>(null);
   const load=()=>api.get(`/debit-notes/${id}`).then(r=>setNote(r.data)); useEffect(()=>{load();},[id]);
   if(!note) return <Loading/>;
   const cancelled=note.status==='Cancelled';
   const download=()=>{const a=document.createElement('a');a.href=`/api/debit-notes/${note.id}/pdf`;a.download=`${note.number}.pdf`;a.click();};
-  const cancel=async()=>{if(!window.confirm('Cancel this debit note? The invoice balance will be reduced back.'))return;const {data}=await api.post(`/debit-notes/${note.id}/cancel`);setNote(data);};
+  const cancel=async()=>{if(!(await confirm({title:'Cancel debit note',message:'The invoice balance will be reduced back.',confirmLabel:'Cancel note',cancelLabel:'Keep it',isDangerous:true})))return;const {data}=await api.post(`/debit-notes/${note.id}/cancel`);setNote(data);};
   return <>
     <PageHeader title="Debit Note Details" action={!cancelled?<Button tone="danger" onClick={cancel}><Ban size={15}/> Cancel Debit Note</Button>:undefined} />
     {cancelled&&<div className="toast">This debit note is cancelled. It no longer affects the invoice balance.</div>}

@@ -5,8 +5,10 @@ import api from '../api';
 import { Button, Card, Loading, PageHeader } from '../components/UI';
 import { JournalEntry } from '../types';
 import { currency, shortDate } from '../utils';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 export default function JournalEntryDetails() {
+  const confirm = useConfirm();
   const { id } = useParams();
   const navigate = useNavigate();
   const [entry, setEntry] = useState<JournalEntry | null>(null);
@@ -20,7 +22,7 @@ export default function JournalEntryDetails() {
   const totalCredit = entry.lines.reduce((s, l) => s + Number(l.credit), 0);
 
   const reverse = async () => {
-    if (!window.confirm('Reverse this journal entry? This posts an offsetting entry and cannot be undone.')) return;
+    if (!(await confirm({ title: 'Reverse journal entry', message: 'This posts an offsetting entry and cannot be undone.', confirmLabel: 'Reverse entry', cancelLabel: 'Keep it', isDangerous: true }))) return;
     setReversing(true);
     try {
       const { data } = await api.post(`/journal/${entry.id}/reverse`);

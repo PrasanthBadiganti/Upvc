@@ -11,7 +11,7 @@ import sys
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, or_, select
 from sqlalchemy import text
@@ -24,9 +24,8 @@ from .database import Base, DEFAULT_DB_PATH, SessionLocal, engine, get_db
 from .gst_reports import ap_aging_report, balance_sheet_report, cash_flow_statement, gstr1_offline_json, gstr1_report, gstr3b_report, hsn_summary_report, profit_and_loss_report, purchase_register, sales_register
 from .opening_balances import commit_opening_balances, preview_opening_balances
 from .party_import import commit_customer_import, commit_vendor_import, preview_customer_import, preview_vendor_import
-from .html_pdf import BrowserNotFound
-from .pdf import build_credit_note_pdf, build_debit_note_pdf, build_invoice_pdf, build_payment_receipt_pdf, build_purchase_bill_pdf, build_quotation_pdf
-from .pdf_html import build_invoice_pdf_html, build_quotation_pdf_html
+from .pdf import build_credit_note_pdf, build_debit_note_pdf, build_payment_receipt_pdf, build_purchase_bill_pdf
+from .pdf_layout import build_invoice_pdf, build_quotation_pdf
 from .rbac import initialize_roles_and_permissions
 from .seed import seed_database
 from .services import cancel_credit_note, cancel_debit_note, cancel_invoice, cancel_purchase_bill, close_financial_year, convert_quotation_to_invoice, create_expense, create_financial_year, create_fixed_asset, create_manual_journal_entry, create_purchase_bill, create_quotation, create_stock_item, delete_expense, dispose_fixed_asset, duplicate_quotation, get_account_ledger, get_credit_note, get_debit_note, get_expense, get_financial_year, get_fixed_asset, get_invoice, get_journal_entry, get_payment, get_purchase_bill, get_quotation, get_stock_item, get_trial_balance, issue_credit_note, issue_debit_note, list_chart_of_accounts, list_financial_years, list_fixed_assets, list_journal_entries, list_stock_items, money, next_code, record_depreciation, record_payment, record_stock_movement, record_vendor_payment, reopen_financial_year, reopen_invoice, reopen_purchase_bill, reverse_manual_journal_entry, update_expense, update_quotation, update_stock_item
@@ -53,58 +52,32 @@ app.include_router(viewer_routes.router)
 
 
 def seed_default_users(db: Session) -> None:
-    """Create default test users for each role"""
-    roles = db.query(models.Role).filter(models.Role.name.in_(["SuperAdmin", "Admin", "Manager", "DataEntry"])).all()
-    role_map = {role.name: role for role in roles}
+    """Provision an admin account only when one is explicitly requested.
 
-    # Check if default users already exist
-    existing_superadmin = db.query(models.User).filter(models.User.username == "superadmin").first()
-    if existing_superadmin:
+    UPVC Pro has no login screen: the business endpoints are unauthenticated and
+    the server binds to localhost only. The single-user desktop app therefore
+    needs no accounts at all. Accounts exist purely for the backup, license and
+    viewer routes, which are not reachable from the UI.
+
+    Set UPVC_ADMIN_PASSWORD to provision an administrator for those routes.
+    With it unset nothing is created, so no known-password account ever ships.
+    """
+    password = os.getenv("UPVC_ADMIN_PASSWORD")
+    if not password:
         return
-
-    # Create default users
-    default_users = [
-        {
-            "username": "superadmin",
-            "email": "superadmin@upvc.com",
-            "full_name": "Super Administrator",
-            "role_name": "SuperAdmin",
-            "password": "SuperAdmin@123",
-        },
-        {
-            "username": "admin",
-            "email": "admin@upvc.com",
-            "full_name": "Administrator",
-            "role_name": "Admin",
-            "password": "Admin@123",
-        },
-        {
-            "username": "manager",
-            "email": "manager@upvc.com",
-            "full_name": "Manager",
-            "role_name": "Manager",
-            "password": "Manager@123",
-        },
-        {
-            "username": "dataentry",
-            "email": "dataentry@upvc.com",
-            "full_name": "Data Entry Operator",
-            "role_name": "DataEntry",
-            "password": "DataEntry@123",
-        },
-    ]
-
-    for user_data in default_users:
-        user = models.User(
-            username=user_data["username"],
-            email=user_data["email"],
-            full_name=user_data["full_name"],
-            role_id=role_map[user_data["role_name"]].id,
-            hashed_password=hash_password(user_data["password"]),
-            is_active=True,
-        )
-        db.add(user)
-
+    if db.query(models.User).filter(models.User.username == "admin").first():
+        return
+    role = db.query(models.Role).filter(models.Role.name == "SuperAdmin").first()
+    if not role:
+        return
+    db.add(models.User(
+        username="admin",
+        email="admin@localhost",
+        full_name="Administrator",
+        role_id=role.id,
+        hashed_password=hash_password(password),
+        is_active=True,
+    ))
     db.commit()
 
 
@@ -196,6 +169,13 @@ def get_or_create_business_settings(db: Session) -> models.BusinessSettings:
     if not settings:
         settings = models.BusinessSettings(id=1)
         db.add(settings)
+        db.commit()
+        db.refresh(settings)
+    # A logo_path can outlive its file (deleted upload, restored backup, fresh
+    # checkout). Clearing it here is a one-off repair that stops every page in
+    # the app requesting an image that 404s.
+    if settings.logo_path and not _logo_file_path(settings.logo_path).exists():
+        settings.logo_path = ""
         db.commit()
         db.refresh(settings)
     return settings
@@ -429,6 +409,18 @@ def delete_customer(customer_id: int, db: Session = Depends(get_db)):
     customer = db.get(models.Customer, customer_id)
     if not customer:
         raise HTTPException(404, "Customer not found")
+    # Invoices are accounting records: their journal entries are keyed by
+    # source_id with no FK, so cascading the invoice away would strand the
+    # ledger and leave A/R that can never be reconciled. Cancel, don't delete.
+    invoice_count = db.scalar(
+        select(func.count()).select_from(models.Invoice).where(models.Invoice.customer_id == customer_id)
+    ) or 0
+    if invoice_count:
+        raise HTTPException(
+            409,
+            f"{customer.name} has {invoice_count} invoice(s) and cannot be deleted. "
+            "Cancel the invoices instead, or set the customer to Inactive to hide them.",
+        )
     db.delete(customer)
     db.commit()
 
@@ -706,13 +698,8 @@ def quotation_pdf(quotation_id: int, db: Session = Depends(get_db)):
         quotation = get_quotation(db, quotation_id)
     except Exception as exc:
         raise HTTPException(404, "Quotation not found") from exc
-    settings = get_or_create_business_settings(db)
-    try:
-        data = build_quotation_pdf_html(quotation, settings)
-    except BrowserNotFound:
-        # No Chromium available on this machine - fall back to the ReportLab layout.
-        data = build_quotation_pdf(quotation, settings)
-    return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{quotation.number}.pdf"'})
+    data = build_quotation_pdf(quotation, get_or_create_business_settings(db))
+    return Response(content=data, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{quotation.number}.pdf"'})
 
 
 @app.get("/api/bank-accounts", response_model=list[schemas.BankAccountRead])
@@ -796,7 +783,12 @@ def reopen_invoice_endpoint(invoice_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/payments", response_model=list[schemas.PaymentRead])
 def list_payments(db: Session = Depends(get_db)):
-    return db.scalars(select(models.Payment).order_by(models.Payment.id.desc())).all()
+    stmt = (
+        select(models.Payment)
+        .options(joinedload(models.Payment.invoice), joinedload(models.Payment.bank_account))
+        .order_by(models.Payment.id.desc())
+    )
+    return db.scalars(stmt).unique().all()
 
 
 @app.get("/api/payments/{payment_id}", response_model=schemas.PaymentRead)
@@ -815,7 +807,7 @@ def payment_receipt(payment_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Payment not found") from exc
     data = build_payment_receipt_pdf(payment, get_or_create_business_settings(db))
     filename = f"Receipt-{payment.invoice.number}-{payment.id}.pdf"
-    return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    return Response(content=data, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @app.get("/api/invoices/{invoice_id}/pdf")
@@ -824,13 +816,8 @@ def invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
         invoice = get_invoice(db, invoice_id)
     except Exception as exc:
         raise HTTPException(404, "Invoice not found") from exc
-    settings = get_or_create_business_settings(db)
-    try:
-        data = build_invoice_pdf_html(invoice, settings)
-    except BrowserNotFound:
-        # No Chromium available on this machine - fall back to the ReportLab layout.
-        data = build_invoice_pdf(invoice, settings)
-    return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{invoice.number}.pdf"'})
+    data = build_invoice_pdf(invoice, get_or_create_business_settings(db))
+    return Response(content=data, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{invoice.number}.pdf"'})
 
 
 @app.post("/api/invoices/{invoice_id}/credit-notes", response_model=schemas.CreditNoteRead, status_code=201)
@@ -872,7 +859,7 @@ def credit_note_pdf(credit_note_id: int, db: Session = Depends(get_db)):
     except Exception as exc:
         raise HTTPException(404, "Credit note not found") from exc
     data = build_credit_note_pdf(credit_note, get_or_create_business_settings(db))
-    return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{credit_note.number}.pdf"'})
+    return Response(content=data, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{credit_note.number}.pdf"'})
 
 
 @app.post("/api/invoices/{invoice_id}/debit-notes", response_model=schemas.DebitNoteRead, status_code=201)
@@ -914,7 +901,7 @@ def debit_note_pdf(debit_note_id: int, db: Session = Depends(get_db)):
     except Exception as exc:
         raise HTTPException(404, "Debit note not found") from exc
     data = build_debit_note_pdf(debit_note, get_or_create_business_settings(db))
-    return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{debit_note.number}.pdf"'})
+    return Response(content=data, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{debit_note.number}.pdf"'})
 
 
 @app.get("/api/vendors", response_model=list[schemas.VendorRead])
@@ -1048,7 +1035,7 @@ def purchase_bill_pdf(purchase_bill_id: int, db: Session = Depends(get_db)):
     except Exception as exc:
         raise HTTPException(404, "Purchase bill not found") from exc
     data = build_purchase_bill_pdf(bill, get_or_create_business_settings(db))
-    return StreamingResponse(BytesIO(data), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{bill.number}.pdf"'})
+    return Response(content=data, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{bill.number}.pdf"'})
 
 
 @app.get("/api/expenses", response_model=list[schemas.ExpenseRead])
@@ -1339,13 +1326,13 @@ def record_stock_movement_endpoint(stock_item_id: int, payload: schemas.StockMov
 @app.get("/api/tally/export/masters")
 def tally_export_masters(db: Session = Depends(get_db)):
     data = build_tally_masters_xml(db)
-    return StreamingResponse(BytesIO(data), media_type="application/xml", headers={"Content-Disposition": 'attachment; filename="tally-masters.xml"'})
+    return Response(content=data, media_type="application/xml", headers={"Content-Disposition": 'attachment; filename="tally-masters.xml"'})
 
 
 @app.get("/api/tally/export/vouchers")
 def tally_export_vouchers(from_date: date = Query(...), to_date: date = Query(...), db: Session = Depends(get_db)):
     data = build_tally_vouchers_xml(db, from_date, to_date)
-    return StreamingResponse(BytesIO(data), media_type="application/xml", headers={"Content-Disposition": f'attachment; filename="tally-vouchers-{from_date}-to-{to_date}.xml"'})
+    return Response(content=data, media_type="application/xml", headers={"Content-Disposition": f'attachment; filename="tally-vouchers-{from_date}-to-{to_date}.xml"'})
 
 
 @app.get("/api/followups", response_model=list[schemas.FollowupRead])

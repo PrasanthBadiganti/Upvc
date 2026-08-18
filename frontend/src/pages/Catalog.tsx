@@ -159,16 +159,16 @@ export default function Catalog() {
       </div>
 
       {loading ? <Loading /> : (
-        <div className="table-wrap"><table className="data-table"><thead><tr><th>Product</th><th>Profile</th><th>Glass</th><th>Rate / SFT</th><th>HSN Code</th><th>Status</th><th style={{textAlign:'center',width:'140px'}}>Actions</th></tr></thead><tbody>{paginatedItems.map(item => <tr key={item.id}>
-          <td><span className="cell-title">{item.name}</span><span className="cell-sub">{item.category} / {item.product_type}</span></td>
-          <td><span className="material-chip">{item.profile_brand || item.profile}</span><span className="cell-sub">{item.profile_series || item.track}</span></td>
-          <td><span className="material-chip green">{item.glass_type || item.glass}</span><span className="cell-sub">{item.glass_thickness}</span></td>
+        <div className="table-wrap"><table className="data-table"><thead><tr><th>Product</th><th>Category</th><th>Type</th><th>Profile</th><th>Series / Track</th><th>Glass</th><th>Thickness</th><th>Rate / SFT</th><th>HSN Code</th><th>Status</th><th style={{textAlign:'center',width:'140px'}}>Actions</th></tr></thead><tbody>{paginatedItems.map(item => <tr key={item.id}>
+          <td title={item.name}><b>{item.name}</b></td><td className="nowrap">{item.category || <span className="muted">--</span>}</td><td className="nowrap">{item.product_type || <span className="muted">--</span>}</td>
+          <td><span className="material-chip">{item.profile_brand || item.profile || "--"}</span></td><td className="nowrap">{item.profile_series || item.track || <span className="muted">--</span>}</td>
+          <td><span className="material-chip green">{item.glass_type || item.glass || "--"}</span></td><td className="nowrap">{item.glass_thickness || <span className="muted">--</span>}</td>
           <td className="amount success"><b>{currency(item.rate_per_sft)}</b></td>
           <td><span className={item.hsn_code && item.hsn_code.length === 8 ? 'material-chip blue' : 'muted'}>{item.hsn_code || 'Not set'}</span></td>
           <td><Status value={item.status} /></td>
           <td style={{textAlign:'center',display:'flex',gap:4,justifyContent:'center'}}><button className="mini-button" title="Edit" onClick={() => showEdit(item)}><Edit3 size={14} /></button></td>
         </tr>)}
-        {!items.length && <tr><td colSpan={7} className="muted">No products found</td></tr>}
+        {!items.length && <tr><td colSpan={11} className="muted">No products found</td></tr>}
         </tbody></table></div>
       )}
 

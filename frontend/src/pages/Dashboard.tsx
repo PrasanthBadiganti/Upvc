@@ -47,7 +47,7 @@ export default function Dashboard() {
 
       <div className="dashboard-grid">
         <Card className="chart-card">
-          <div className="chart-title"><div><h3>Quotations vs Invoices (Monthly)</h3><div className="chart-legend"><span><i className="legend-dot" style={{background:'#3478f6'}} />Quotations</span><span><i className="legend-dot" style={{background:'#18b7a4'}} />Invoices</span></div></div><button className="button secondary">Last 12 Months</button></div>
+          <div className="chart-title"><div><h3>Quotations vs Invoices (Monthly)</h3><div className="chart-legend"><span><i className="legend-dot" style={{background:'#3478f6'}} />Quotations</span><span><i className="legend-dot" style={{background:'#18b7a4'}} />Invoices</span></div></div><span className="chart-period">Last 12 months</span></div>
           <ResponsiveContainer width="100%" height={210}>
             <BarChart data={data.monthly} barGap={2} margin={{ top: 15, right: 4, left: -20, bottom: 0 }}>
               <CartesianGrid stroke="#edf1f5" vertical={false} />

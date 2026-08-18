@@ -95,6 +95,7 @@ export type Quotation = {
   quotation_terms?: string;
   created_at: string;
   items: QuotationItem[];
+  charges?: QuotationCharge[];
   customer: Customer;
 };
 
@@ -131,6 +132,7 @@ export type BankAccountSummary = {
 
 export type Payment = {
   id: number;
+  number: string;
   invoice_id: number;
   payment_date: string;
   mode: string;
@@ -140,6 +142,7 @@ export type Payment = {
   notes: string;
   bank_account_id?: number | null;
   bank_account?: BankAccountSummary | null;
+  invoice?: InvoiceSummary | null;
   created_at: string;
 };
 
@@ -162,9 +165,17 @@ export type Invoice = {
   pending_balance: number | string;
   created_at: string;
   items: InvoiceItem[];
+  charges?: QuotationCharge[];
   payments: Payment[];
   customer: Customer;
   quotation?: Quotation | null;
+};
+
+export type QuotationCharge = {
+  id?: number;
+  label: string;
+  amount: number | string;
+  taxable: boolean;
 };
 
 export type InvoiceSummary = {

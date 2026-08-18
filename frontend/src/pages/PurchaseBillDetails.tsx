@@ -6,8 +6,10 @@ import { Button, Card, Field, Input, Loading, Modal, PageHeader, Select } from '
 import Status from '../components/Status';
 import { BankAccount, PurchaseBill } from '../types';
 import { currency, shortDate } from '../utils';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 export default function PurchaseBillDetails(){
+  const confirm = useConfirm();
   const {id}=useParams(); const [bill,setBill]=useState<PurchaseBill|null>(null); const [open,setOpen]=useState(false); const [saving,setSaving]=useState(false);
   const [payment,setPayment]=useState<{payment_date:string;mode:string;reference_number:string;amount:number;paid_by:string;notes:string;bank_account_id:number|null}>({payment_date:new Date().toISOString().slice(0,10),mode:'NEFT',reference_number:'',amount:0,paid_by:'Arun Verma',notes:'',bank_account_id:null});
   const [bankAccounts,setBankAccounts]=useState<BankAccount[]>([]);
@@ -17,7 +19,7 @@ export default function PurchaseBillDetails(){
   const submit=async(e:FormEvent)=>{e.preventDefault();setSaving(true);try{const {data}=await api.post(`/purchase-bills/${bill.id}/payments`,payment);setBill(data);setOpen(false);}finally{setSaving(false)}};
   const download=()=>{const a=document.createElement('a');a.href=`/api/purchase-bills/${bill.id}/pdf`;a.download=`${bill.number}.pdf`;a.click();};
   const cancelled=bill.status==='Cancelled';
-  const cancel=async()=>{const paid=bill.status==='Paid';if(!window.confirm(paid?'This purchase bill is fully paid. Cancel it anyway?':'Cancel this purchase bill?'))return;const {data}=await api.post(`/purchase-bills/${bill.id}/cancel`,null,{params:{force:paid}});setBill(data);};
+  const cancel=async()=>{const paid=bill.status==='Paid';if(!(await confirm({title:`Cancel ${bill.number}?`,message:paid?'This purchase bill is fully paid. Cancelling it will reverse the posting.':'A reversing entry will be posted to the ledger.',confirmLabel:paid?'Cancel anyway':'Cancel bill',cancelLabel:'Keep it',isDangerous:true})))return;const {data}=await api.post(`/purchase-bills/${bill.id}/cancel`,null,{params:{force:paid}});setBill(data);};
   const reopen=async()=>{const {data}=await api.post(`/purchase-bills/${bill.id}/reopen`);setBill(data);};
   return <>
     <PageHeader title="Purchase Bill Details" action={<div className="action-group">{cancelled?<Button tone="secondary" onClick={reopen}><RotateCcw size={15}/> Reopen Bill</Button>:<Button tone="danger" onClick={cancel}><Ban size={15}/> Cancel Bill</Button>}</div>} />

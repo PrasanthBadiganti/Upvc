@@ -4,6 +4,7 @@ import api from '../api';
 import { Button, Card, Field, Input, Loading, Modal, PageHeader, Select } from '../components/UI';
 import Status from '../components/Status';
 import { BankAccount } from '../types';
+import Pagination, { usePagination } from '../components/Pagination';
 
 type BankAccountForm = Omit<BankAccount, 'id' | 'created_at'>;
 
@@ -69,14 +70,13 @@ export default function BankAccounts() {
     await load();
   };
 
+  const { pageRows, props: pageProps } = usePagination(filtered);
+
   return <>
-    <PageHeader title="Bank Accounts" subtitle="Bank accounts you can link sales and purchase payments to" />
-    <div className="list-toolbar">
-      <div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, bank, account number..." /></div>
+    <PageHeader title="Bank Accounts" subtitle="Bank accounts you can link sales and purchase payments to"  toolbar={<><div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, bank, account number..." /></div>
       <Select value={status} onChange={e => setStatus(e.target.value)} style={{ width: 130 }}><option value="">All Status</option><option>Active</option><option>Inactive</option></Select>
-      <Button onClick={showAdd}><Landmark size={16} /> Add Bank Account</Button>
-    </div>
-    <Card className="list-card">{loading ? <Loading /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Account</th><th>Bank</th><th>Account Number</th><th>IFSC</th><th>Type</th><th>Status</th><th>Action</th></tr></thead><tbody>{filtered.map(account => <tr key={account.id}>
+      <Button onClick={showAdd}><Landmark size={16} /> Add Bank Account</Button></>}/>
+        <Card className="list-card">{loading ? <Loading /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Account</th><th>Bank</th><th>Account Number</th><th>IFSC</th><th>Type</th><th>Status</th><th>Action</th></tr></thead><tbody>{pageRows.map(account => <tr key={account.id}>
       <td className="cell-title">{account.name}</td>
       <td>{account.bank_name || '--'}</td>
       <td>{account.account_number || '--'}</td>
@@ -86,7 +86,7 @@ export default function BankAccounts() {
       <td><button className="mini-button" onClick={() => showEdit(account)}><Edit3 size={14} /></button></td>
     </tr>)}
     {!filtered.length && <tr><td colSpan={7} className="muted">No bank accounts found</td></tr>}
-    </tbody></table></div>}</Card>
+    </tbody></table></div>}<Pagination {...pageProps} noun="accounts" /></Card>
 
     <Modal open={open} onClose={() => setOpen(false)} title={editing ? 'Edit Bank Account' : 'Add Bank Account'} width={640}>
       <form onSubmit={submit}>

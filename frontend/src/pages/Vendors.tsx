@@ -6,6 +6,7 @@ import ImportModal from '../components/ImportModal';
 import Status from '../components/Status';
 import { Vendor } from '../types';
 import { currency, INDIAN_STATES } from '../utils';
+import Pagination, { usePagination } from '../components/Pagination';
 
 type VendorForm = Omit<Vendor, 'id' | 'code' | 'created_at'>;
 
@@ -70,25 +71,24 @@ export default function Vendors() {
     await load();
   };
 
+  const { pageRows, props: pageProps } = usePagination(vendors);
+
   return <>
-    <PageHeader title="Vendors" subtitle="Suppliers you buy raw material and hardware from" />
-    <div className="list-toolbar">
-      <div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vendor by name, phone, email..." /></div>
+    <PageHeader title="Vendors" subtitle="Suppliers you buy raw material and hardware from"  toolbar={<><div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vendor by name, phone, email..." /></div>
       <Select value={status} onChange={e => setStatus(e.target.value)} style={{ width: 130 }}><option value="">All Status</option><option>Active</option><option>Inactive</option></Select>
       <Button tone="secondary" onClick={() => setImportOpen(true)}><Upload size={16} /> Import CSV</Button>
-      <Button onClick={showAdd}><UserPlus2 size={16} /> Add Vendor</Button>
-    </div>
-    <Card className="list-card">{loading ? <Loading /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Vendor</th><th>Contact</th><th>GSTIN</th><th>State</th><th>Pending Payable</th><th>Status</th><th>Action</th></tr></thead><tbody>{vendors.map(vendor => <tr key={vendor.id}>
-      <td><span className="cell-title">{vendor.name}</span><span className="cell-sub">{vendor.code}</span></td>
-      <td><span>{vendor.phone}</span><span className="cell-sub">{vendor.email}</span></td>
+      <Button onClick={showAdd}><UserPlus2 size={16} /> Add Vendor</Button></>}/>
+        <Card className="list-card">{loading ? <Loading /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Vendor ID</th><th>Vendor Name</th><th>Mobile</th><th>Email</th><th>GSTIN</th><th>State</th><th>Pending Payable</th><th>Status</th><th>Action</th></tr></thead><tbody>{pageRows.map(vendor => <tr key={vendor.id}>
+      <td className="nowrap">{vendor.code}</td><td title={vendor.name}><b>{vendor.name}</b></td>
+      <td className="nowrap">{vendor.phone || <span className="muted">--</span>}</td><td title={vendor.email}>{vendor.email || <span className="muted">--</span>}</td>
       <td>{vendor.gst_number || '--'}</td>
       <td>{vendor.state || '--'}</td>
       <td className={`amount ${Number(vendor.pending_payment) > 0 ? 'danger' : 'success'}`}>{currency(vendor.pending_payment, 2)}</td>
       <td><Status value={vendor.status} /></td>
       <td><button className="mini-button" onClick={() => showEdit(vendor)}><Edit3 size={14} /></button></td>
     </tr>)}
-    {!vendors.length && <tr><td colSpan={7} className="muted">No vendors found</td></tr>}
-    </tbody></table></div>}</Card>
+    {!vendors.length && <tr><td colSpan={9} className="muted">No vendors found</td></tr>}
+    </tbody></table></div>}<Pagination {...pageProps} noun="vendors" /></Card>
 
     <Modal open={open} onClose={() => setOpen(false)} title={editing ? 'Edit Vendor' : 'Add Vendor'} width={720}>
       <form onSubmit={submit}>

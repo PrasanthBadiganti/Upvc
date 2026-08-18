@@ -222,6 +222,18 @@ class QuotationItemRead(QuotationItemPayload, ORMModel):
     id: int
 
 
+class ChargePayload(BaseModel):
+    """An owner-defined extra charge (transport, installation, loading...)."""
+
+    label: str
+    amount: Decimal = Decimal("0")
+    taxable: bool = True
+
+
+class ChargeRead(ChargePayload, ORMModel):
+    id: int
+
+
 class QuotationCreate(BaseModel):
     customer_id: int
     quotation_date: date = Field(default_factory=date.today)
@@ -239,6 +251,7 @@ class QuotationCreate(BaseModel):
     installation_notes: str = ""
     quotation_terms: str = ""
     items: list[QuotationItemPayload]
+    charges: list[ChargePayload] = []
 
 
 class QuotationUpdate(QuotationCreate):
@@ -270,6 +283,7 @@ class QuotationRead(ORMModel):
     quotation_terms: str
     created_at: datetime
     items: list[QuotationItemRead]
+    charges: list[ChargeRead] = []
     customer: CustomerRead
 
 
@@ -311,6 +325,14 @@ class BankAccountSummaryRead(ORMModel):
     account_type: str
 
 
+class InvoiceSummaryRead(ORMModel):
+    id: int
+    number: str
+    invoice_date: date
+    grand_total: Decimal
+    pending_balance: Decimal
+
+
 class PaymentCreate(BaseModel):
     payment_date: date = Field(default_factory=date.today)
     mode: str = "NEFT"
@@ -327,6 +349,8 @@ class PaymentRead(PaymentCreate, ORMModel):
     invoice_id: int
     created_at: datetime
     bank_account: BankAccountSummaryRead | None = None
+    # So the Payments list can show the invoice number rather than a raw row id.
+    invoice: InvoiceSummaryRead | None = None
 
 
 class InvoiceRead(ORMModel):
@@ -348,17 +372,10 @@ class InvoiceRead(ORMModel):
     pending_balance: Decimal
     created_at: datetime
     items: list[InvoiceItemRead]
+    charges: list[ChargeRead] = []
     payments: list[PaymentRead]
     customer: CustomerRead
     quotation: QuotationRead | None = None
-
-
-class InvoiceSummaryRead(ORMModel):
-    id: int
-    number: str
-    invoice_date: date
-    grand_total: Decimal
-    pending_balance: Decimal
 
 
 class CreditNoteItemPayload(BaseModel):

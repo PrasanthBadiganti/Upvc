@@ -1,11 +1,11 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { BellRing, CalendarDays, Eye, FileText, Mail, MapPin, MoreVertical, Phone, Plus, ReceiptText, Search, Upload, UserPlus2, UsersRound, WalletCards } from 'lucide-react';
+﻿import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { CalendarDays, Eye, Mail, MapPin, MoreVertical, Phone, Plus, ReceiptText, Search, Upload, UsersRound, WalletCards } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../api';
 import { Button, Card, Field, Input, Loading, Modal, PageHeader, Select } from '../components/UI';
 import ImportModal from '../components/ImportModal';
-import MetricCard from '../components/MetricCard';
 import Status from '../components/Status';
+import Pagination, { usePagination } from '../components/Pagination';
 import { Customer, CustomerProfile } from '../types';
 import { currency, INDIAN_STATES, shortDate, shortTime, toLocalInput } from '../utils';
 
@@ -48,7 +48,9 @@ export default function Customers() {
     setLoading(true);
     const { data } = await api.get('/customers', { params: { search, status } });
     setCustomers(data);
-    setSelected(prev => prev ? data.find((c: Customer) => c.id === prev.id) || data[0] || null : data[0] || null);
+    // Selection now opens the detail modal, so never auto-select on load - just
+    // keep an already-open record in sync (or close it if it has gone away).
+    setSelected(prev => (prev ? data.find((c: Customer) => c.id === prev.id) || null : null));
     setLoading(false);
   };
 
@@ -79,12 +81,7 @@ export default function Customers() {
     [customers, salesperson],
   );
 
-  const counts = useMemo(() => ({
-    new: visibleCustomers.filter(c => c.status === 'New').length,
-    live: visibleCustomers.filter(c => ['Live', 'Completed'].includes(c.status)).length,
-    pending: visibleCustomers.filter(c => ['Quotation Sent', 'Negotiation'].includes(c.status)).length,
-    due: visibleCustomers.filter(c => c.next_followup).length,
-  }), [visibleCustomers]);
+  const { pageRows, props: pageProps } = usePagination(visibleCustomers);
 
   const activeCustomer = profile?.customer || selected;
   const metrics = profile?.metrics;
@@ -135,44 +132,54 @@ export default function Customers() {
 
   return (
     <>
-      <PageHeader title="Customers" subtitle="Lead and customer management" />
-      <div className="customers-main-layout">
-        <div className="customers-left-panel">
-          <div className="metric-grid customers-metrics">
-            <MetricCard label="New Enquiries" value={counts.new} change="Current list" icon={UserPlus2} tone="blue" />
-            <MetricCard label="Live Customers" value={counts.live} change="Live + completed" icon={UsersRound} tone="teal" />
-            <MetricCard label="Pending Quotations" value={counts.pending} change="Sent + negotiation" icon={FileText} tone="amber" />
-            <MetricCard label="Follow-ups Due" value={counts.due} change="Scheduled follow-ups" icon={BellRing} tone="red" />
-          </div>
-
-          <div className="customers-layout">
-        <Card className="customer-table-card">
-          <div className="filters">
-            <div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search customers by name, phone, email..." /></div>
-            <Select value={status} onChange={e => setStatus(e.target.value)} style={{ width: 130 }}><option value="">All Status</option>{statuses.map(item => <option key={item}>{item}</option>)}</Select>
-            <Select value={salesperson} onChange={e => setSalesperson(e.target.value)} style={{ width: 145 }}><option value="">All Salespersons</option>{salespeople.map(item => <option key={item}>{item}</option>)}</Select>
-            <Button tone="secondary" onClick={() => setImportOpen(true)} style={{ marginLeft: 'auto' }}><Upload size={16} /> Import CSV</Button>
-            <Button onClick={showAdd}><Plus size={16} /> Add Customer</Button>
-          </div>
+      <PageHeader title="Customers" subtitle="Lead and customer management" toolbar={<>
+        <div className="search-box"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search customers by name, phone, email..." /></div>
+        <Select value={status} onChange={e => setStatus(e.target.value)} style={{ width: 130 }}><option value="">All Status</option>{statuses.map(item => <option key={item}>{item}</option>)}</Select>
+        <Select value={salesperson} onChange={e => setSalesperson(e.target.value)} style={{ width: 145 }}><option value="">All Salespersons</option>{salespeople.map(item => <option key={item}>{item}</option>)}</Select>
+        <Button tone="secondary" onClick={() => setImportOpen(true)}><Upload size={16} /> Import CSV</Button>
+        <Button onClick={showAdd}><Plus size={16} /> Add Customer</Button>
+      </>} />
+        <Card className="list-card">
 
           {loading ? <Loading /> : (
-            <div className="table-wrap"><table className="data-table"><thead><tr><th>Customer</th><th>Contact</th><th>Status</th><th>Assigned To</th><th style={{textAlign:'center'}}>Actions</th></tr></thead><tbody>
-              {visibleCustomers.map(customer => <tr key={customer.id} className={selected?.id === customer.id ? 'selected-row' : ''} onClick={() => setSelected(customer)}>
-                <td><span className="cell-title">{customer.name}</span><span className="cell-sub">{customer.code}</span></td>
-                <td><span>{customer.phone}</span><span className="cell-sub">{customer.email}</span></td>
+            <div className="table-wrap"><table className="data-table customers-table"><thead><tr>
+              <th>Cust ID</th>
+              <th>Customer Name</th>
+              <th>Mobile</th>
+              <th>Email</th>
+              <th>State</th>
+              <th>Project / Site</th>
+              <th>GSTIN</th>
+              <th className="num">Quote Value</th>
+              <th className="num">Pending</th>
+              <th>Status</th>
+              <th>Assigned To</th>
+              <th>Next Follow-up</th>
+              <th style={{ textAlign: 'center' }}>Actions</th>
+            </tr></thead><tbody>
+              {pageRows.map(customer => <tr key={customer.id} className={selected?.id === customer.id ? 'selected-row' : ''} onClick={() => setSelected(customer)}>
+                <td className="nowrap">{customer.code}</td>
+                <td title={customer.name}><b>{customer.name}</b></td>
+                <td className="nowrap">{customer.phone || <span className="muted">--</span>}</td>
+                <td title={customer.email}>{customer.email || <span className="muted">--</span>}</td>
+                <td className="nowrap">{customer.state || <span className="muted">--</span>}</td>
+                <td title={customer.project_site}>{customer.project_site || <span className="muted">--</span>}</td>
+                <td className="nowrap">{customer.gst_number || <span className="muted">--</span>}</td>
+                <td className="amount">{currency(customer.quote_value, 0)}</td>
+                <td className={`amount${Number(customer.pending_payment) > 0 ? ' danger' : ''}`}>{currency(customer.pending_payment, 0)}</td>
                 <td><Status value={customer.status} /></td>
-                <td>{customer.assigned_to}</td>
-                <td style={{textAlign:'center'}}><div className="action-group"><button className="mini-button" onClick={e => { e.stopPropagation(); showEdit(customer); }}><MoreVertical size={14} /></button></div></td>
+                <td className="nowrap">{customer.assigned_to || <span className="muted">--</span>}</td>
+                <td className="nowrap">{customer.next_followup ? shortDate(customer.next_followup) : <span className="muted">--</span>}</td>
+                <td style={{ textAlign: 'center' }}><div className="action-group"><button className="mini-button" title="Edit customer" onClick={e => { e.stopPropagation(); showEdit(customer); }}><MoreVertical size={14} /></button></div></td>
               </tr>)}
-              {!visibleCustomers.length && <tr><td colSpan={5} className="muted">No customers found</td></tr>}
+              {!visibleCustomers.length && <tr><td colSpan={13} className="muted">No customers found</td></tr>}
             </tbody></table></div>
           )}
-          <div className="pagination"><span>Showing {visibleCustomers.length ? 1 : 0} to {visibleCustomers.length} of {visibleCustomers.length} customers</span><div className="pagination-controls"><button className="page-chip active">1</button></div><Select style={{ width: 95 }}><option>10 / page</option></Select></div>
+          <Pagination {...pageProps} noun="customers" />
         </Card>
-          </div>
-        </div>
 
-        <Card className="customer-details">
+      {/* Clicking a row opens the full customer record here, so the list stays a clean table. */}
+      <Modal open={!!selected} onClose={() => setSelected(null)} title={activeCustomer?.name || 'Customer'} width={780}>
           {activeCustomer ? (
             profileLoading && !profile ? <Loading /> : <>
               <div className="detail-title"><h3>{activeCustomer.name}</h3><Status value={activeCustomer.status} /></div>
@@ -221,9 +228,12 @@ export default function Customers() {
                 </div>
               </div>
             </>
-          ) : <div className="empty-state">Select a customer</div>}
-        </Card>
-      </div>
+          ) : null}
+          <div className="form-actions" style={{ marginTop: 14 }}>
+            <Button tone="secondary" onClick={() => setSelected(null)}>Close</Button>
+            {activeCustomer && <Button onClick={() => { showEdit(activeCustomer); setSelected(null); }}>Edit Customer</Button>}
+          </div>
+      </Modal>
 
       <Modal open={open} onClose={() => setOpen(false)} title={editing ? 'Edit Customer' : 'Add Customer'} width={760}>
         <form onSubmit={submit}>
@@ -261,3 +271,4 @@ export default function Customers() {
     </>
   );
 }
+
