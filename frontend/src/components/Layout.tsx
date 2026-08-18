@@ -15,6 +15,7 @@ import {
   FilePlus2,
   FileText,
   FolderInput,
+  DatabaseBackup,
   HandCoins,
   Landmark,
   LayoutDashboard,
@@ -76,6 +77,7 @@ const navGroups = [
   { key: 'tools', label: 'Tools', items: [
     ['Tally Export', '/tally-export', FileArchive],
     ['Opening Balances', '/opening-balances', FolderInput],
+    ['Backup & Restore', '/backup', DatabaseBackup],
   ] },
   { key: 'bottom', label: null, items: [
     ['Settings', '/settings', Settings],

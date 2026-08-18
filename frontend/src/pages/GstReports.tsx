@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Download } from 'lucide-react';
 import api from '../api';
-import { Button, Card, Field, Input, Loading, PageHeader } from '../components/UI';
+import { Button, Card, CollapsibleSection, Field, Input, Loading, PageHeader } from '../components/UI';
 import { currency } from '../utils';
 
 type Gstr1 = {
@@ -66,41 +66,37 @@ export default function GstReports() {
         <Card className="settings-card"><h3>Net Tax Payable</h3><div className="summary-line"><span>CGST Payable</span><b>{currency(gstr3b.net_tax_payable.cgst, 2)}</b></div><div className="summary-line"><span>SGST Payable</span><b>{currency(gstr3b.net_tax_payable.sgst, 2)}</b></div><div className="summary-line"><span>IGST Payable</span><b>{currency(gstr3b.net_tax_payable.igst, 2)}</b></div><div className="summary-line total"><span>Total Payable</span><b>{currency(gstr3b.net_tax_payable.total, 2)}</b></div></Card>
       </div>
 
-      <Card className="list-card">
-        <div className="card-head"><h3>B2B Invoices (GSTR-1)</h3></div>
+      <CollapsibleSection title="B2B Invoices (GSTR-1)" count={gstr1.b2b.length} defaultOpen>
         <div className="table-wrap"><table className="data-table"><thead><tr><th>Invoice No.</th><th>Date</th><th>Customer</th><th>GSTIN</th><th>Taxable Value</th><th>Rate</th><th>CGST</th><th>SGST</th><th>IGST</th><th>Invoice Value</th></tr></thead><tbody>{gstr1.b2b.map(row => <tr key={row.invoice_number}><td className="cell-title">{row.invoice_number}</td><td>{row.invoice_date}</td><td>{row.customer_name}</td><td>{row.gstin}</td><td className="amount">{currency(row.taxable_value, 2)}</td><td>{row.rate}%</td><td className="amount">{currency(row.cgst, 2)}</td><td className="amount">{currency(row.sgst, 2)}</td><td className="amount">{currency(row.igst, 2)}</td><td className="amount"><b>{currency(row.invoice_value, 2)}</b></td></tr>)}
         {!gstr1.b2b.length && <tr><td colSpan={10} className="muted">No B2B invoices in this period</td></tr>}
         </tbody></table></div>
-      </Card>
+      </CollapsibleSection>
 
-      <Card className="list-card">
-        <div className="card-head"><h3>B2C Summary (by rate)</h3></div>
+      <CollapsibleSection title="B2C Summary (by rate)" count={gstr1.b2c.length}>
         <div className="table-wrap"><table className="data-table"><thead><tr><th>Rate</th><th>Taxable Value</th><th>CGST</th><th>SGST</th><th>IGST</th></tr></thead><tbody>{gstr1.b2c.map(row => <tr key={row.rate}><td>{row.rate}%</td><td className="amount">{currency(row.taxable_value, 2)}</td><td className="amount">{currency(row.cgst, 2)}</td><td className="amount">{currency(row.sgst, 2)}</td><td className="amount">{currency(row.igst, 2)}</td></tr>)}
         {!gstr1.b2c.length && <tr><td colSpan={5} className="muted">No B2C invoices in this period</td></tr>}
         </tbody></table></div>
-      </Card>
+      </CollapsibleSection>
 
-      <Card className="list-card">
-        <div className="card-head"><h3>Credit / Debit Notes (CDNR)</h3></div>
+      <CollapsibleSection title="Credit / Debit Notes (CDNR)" count={gstr1.cdnr.length}>
         <div className="table-wrap"><table className="data-table"><thead><tr><th>Type</th><th>Note No.</th><th>Date</th><th>Against Invoice</th><th>Customer</th><th>Taxable Value</th><th>Tax</th></tr></thead><tbody>{gstr1.cdnr.map(row => <tr key={row.note_number}><td>{row.type}</td><td className="cell-title">{row.note_number}</td><td>{row.note_date}</td><td>{row.against_invoice}</td><td>{row.customer_name}</td><td className="amount">{currency(row.taxable_value, 2)}</td><td className="amount">{currency(row.tax_amount, 2)}</td></tr>)}
         {!gstr1.cdnr.length && <tr><td colSpan={7} className="muted">No credit/debit notes in this period</td></tr>}
         </tbody></table></div>
-      </Card>
+      </CollapsibleSection>
 
-      <Card className="list-card">
-        <div className="card-head"><h3>HSN Summary (Table 12)</h3><Button tone="secondary" onClick={() => downloadCsv('gst/hsn-summary/csv', `hsn-summary-${fromDate}-to-${toDate}.csv`)}><Download size={14} /> Download CSV</Button></div>
+      <CollapsibleSection title="HSN Summary (Table 12)" count={gstr1.hsn_summary.length}
+        actions={<Button tone="secondary" onClick={() => downloadCsv('gst/hsn-summary/csv', `hsn-summary-${fromDate}-to-${toDate}.csv`)}><Download size={14} /> Download CSV</Button>}>
         <div className="table-wrap"><table className="data-table"><thead><tr><th>HSN Code</th><th>Description</th><th>Unit</th><th>Quantity</th><th>Taxable Value</th><th>Tax Amount</th><th>Total Value</th></tr></thead><tbody>{gstr1.hsn_summary.map(row => <tr key={row.hsn_code}><td className="cell-title">{row.hsn_code}</td><td>{row.description}</td><td>{row.unit}</td><td>{row.quantity}</td><td className="amount">{currency(row.taxable_value, 2)}</td><td className="amount">{currency(row.tax_amount, 2)}</td><td className="amount"><b>{currency(row.total_value, 2)}</b></td></tr>)}
         {!gstr1.hsn_summary.length && <tr><td colSpan={7} className="muted">No HSN activity in this period</td></tr>}
         </tbody></table></div>
-      </Card>
+      </CollapsibleSection>
 
-      <Card className="list-card">
-        <div className="card-head"><h3>Registers</h3></div>
+      <CollapsibleSection title="Registers">
         <div className="form-actions" style={{ justifyContent: 'flex-start', gap: 12 }}>
           <Button tone="secondary" onClick={() => downloadCsv('gst/sales-register/csv', `sales-register-${fromDate}-to-${toDate}.csv`)}><Download size={14} /> Sales Register CSV</Button>
           <Button tone="secondary" onClick={() => downloadCsv('gst/purchase-register/csv', `purchase-register-${fromDate}-to-${toDate}.csv`)}><Download size={14} /> Purchase Register CSV</Button>
         </div>
-      </Card>
+      </CollapsibleSection>
     </>}
   </>;
 }

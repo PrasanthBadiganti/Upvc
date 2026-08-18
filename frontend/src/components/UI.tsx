@@ -1,5 +1,5 @@
-import { ReactNode } from 'react';
-import { X } from 'lucide-react';
+import { CSSProperties, ReactNode, useState } from 'react';
+import { ChevronRight, X } from 'lucide-react';
 
 export function Card({ children, className = '', ...props }: React.HTMLAttributes<HTMLElement> & { children: ReactNode }) {
   return <section className={`card ${className}`} {...props}>{children}</section>;
@@ -51,6 +51,40 @@ export function Modal({ open, title, children, onClose, width = 640 }: { open: b
         <div className="modal-body">{children}</div>
       </div>
     </div>
+  );
+}
+
+/**
+ * A titled section that folds away, for pages that stack several long tables.
+ * The row count stays on the header so you can tell whether a collapsed section
+ * is worth opening, and the body caps its own height and scrolls internally -
+ * otherwise one 300-row table pushes every section below it off the screen.
+ */
+export function CollapsibleSection({ title, count, actions, defaultOpen = false, bodyHeight = 320, children }: {
+  title: string;
+  count?: number;
+  actions?: ReactNode;
+  defaultOpen?: boolean;
+  bodyHeight?: number;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Card className="collapsible-card">
+      <div className="card-head collapsible-head">
+        <button type="button" className="collapsible-toggle" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+          <ChevronRight size={15} className={`chev${open ? ' open' : ''}`} />
+          <h3>{title}</h3>
+          {count !== undefined && <span className="count-pill">{count}</span>}
+        </button>
+        {actions}
+      </div>
+      {open && (
+        <div className="collapsible-body" style={{ '--collapse-h': `${bodyHeight}px` } as CSSProperties}>
+          {children}
+        </div>
+      )}
+    </Card>
   );
 }
 
