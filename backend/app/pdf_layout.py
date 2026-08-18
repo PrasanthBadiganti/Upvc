@@ -97,7 +97,7 @@ _S = {
 
 
 def _inr(value: object, decimals: int = 2) -> str:
-    """Indian digit grouping: 116375.02 -> Rs.1,16,375.02"""
+    """Indian digit grouping, symbol set off from the number: 116375.02 -> Rs. 1,16,375.02"""
     amount = Decimal(str(value or 0))
     negative = amount < 0
     text = f"{abs(amount):.{decimals}f}"
@@ -111,7 +111,7 @@ def _inr(value: object, decimals: int = 2) -> str:
         if head:
             groups.insert(0, head)
         whole = ",".join(groups + [tail])
-    out = f"{RUPEE}{whole}.{frac}" if frac else f"{RUPEE}{whole}"
+    out = f"{RUPEE} {whole}.{frac}" if frac else f"{RUPEE} {whole}"
     return f"-{out}" if negative else out
 
 

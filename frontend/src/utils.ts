@@ -1,5 +1,12 @@
-export const currency = (value: number | string | null | undefined, digits = 0) =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: digits, maximumFractionDigits: digits }).format(Number(value || 0));
+// Intl's INR style renders "₹1,16,375" with no gap. We want the symbol set off
+// from the number, so format the digits alone and prefix it ourselves. The gap
+// is a non-breaking space: in a narrow table cell a normal space would let the
+// symbol wrap onto its own line, away from its amount.
+export const currency = (value: number | string | null | undefined, digits = 0) => {
+  const n = Number(value || 0);
+  const body = new Intl.NumberFormat('en-IN', { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(Math.abs(n));
+  return `${n < 0 ? '-' : ''}₹ ${body}`;
+};
 
 export const quantity = (value: number | string | null | undefined, digits = 2) =>
   new Intl.NumberFormat('en-IN', { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(Number(value || 0));

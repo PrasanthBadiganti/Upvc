@@ -130,6 +130,11 @@ def ensure_schema() -> None:
         },
         "invoice_items": {
             "hsn_code": "VARCHAR(20) DEFAULT ''",
+            "style": "VARCHAR(100) DEFAULT ''",
+            "width_mm": "NUMERIC(10, 2) DEFAULT 0",
+            "height_mm": "NUMERIC(10, 2) DEFAULT 0",
+            "sft": "NUMERIC(10, 2) DEFAULT 0",
+            "piece_qty": "NUMERIC(10, 2) DEFAULT 0",
         },
         "invoices": {
             "igst": "NUMERIC(14, 2) DEFAULT 0",

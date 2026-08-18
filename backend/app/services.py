@@ -301,6 +301,11 @@ def convert_quotation_to_invoice(db: Session, quotation_id: int) -> models.Invoi
                 gst_percent=18,
                 amount=money(item.amount),
                 hsn_code=item.hsn_code,
+                style=item.style,
+                width_mm=item.width_mm,
+                height_mm=item.height_mm,
+                sft=item.sft,
+                piece_qty=item.quantity,
             )
         )
     quote.status = "Converted"
@@ -630,6 +635,18 @@ def get_debit_note(db: Session, debit_note_id: int) -> models.DebitNote:
     return db.scalars(stmt).unique().one()
 
 
+def credit_note_gst_deadline(supply_date: date) -> date:
+    """Last date a credit note may still reduce output GST.
+
+    Section 34(2) CGST Act: the adjustment must be declared by the 30th November
+    following the end of the financial year of the original supply (September
+    until the Finance Act 2022 moved it), or the date the annual return for that
+    year is filed, whichever is earlier. Indian financial years run April-March.
+    """
+    fy_start_year = supply_date.year if supply_date.month >= 4 else supply_date.year - 1
+    return date(fy_start_year + 1, 11, 30)
+
+
 def issue_credit_note(db: Session, invoice_id: int, payload: CreditNoteCreate) -> models.CreditNote:
     _ensure_period_open(db, payload.note_date)
     invoice = get_invoice(db, invoice_id)
@@ -639,8 +656,33 @@ def issue_credit_note(db: Session, invoice_id: int, payload: CreditNoteCreate) -
     grand_total = money(subtotal + gst_total)
     if grand_total <= 0:
         raise ValueError("Credit note total must be greater than zero")
-    if grand_total > Decimal(invoice.pending_balance or 0):
-        raise ValueError("Credit note total cannot exceed the invoice's pending balance")
+
+    deadline = credit_note_gst_deadline(invoice.invoice_date)
+    if payload.note_date > deadline:
+        raise ValueError(
+            f"The GST on a credit note against {invoice.number} (dated "
+            f"{invoice.invoice_date:%d-%m-%Y}) can only be adjusted up to "
+            f"{deadline:%d-%m-%Y} under section 34(2). After that date the tax "
+            "stays paid - record a commercial credit through a manual journal entry instead."
+        )
+
+    # A credit note is capped by what was invoiced, not by what is still unpaid:
+    # goods returned after the invoice was settled leave the customer in credit.
+    already_credited = Decimal(
+        db.scalar(
+            select(func.coalesce(func.sum(models.CreditNote.grand_total), 0)).where(
+                models.CreditNote.invoice_id == invoice.id,
+                models.CreditNote.status != "Cancelled",
+            )
+        )
+        or 0
+    )
+    if grand_total + already_credited > Decimal(invoice.grand_total):
+        remaining = money(Decimal(invoice.grand_total) - already_credited)
+        raise ValueError(
+            f"Credit notes against {invoice.number} cannot exceed its value of "
+            f"{invoice.grand_total}. Already credited: {already_credited}. Available: {remaining}."
+        )
 
     seq = next_sequence_number(db, models.CreditNote)
     credit_note = models.CreditNote(
@@ -660,7 +702,9 @@ def issue_credit_note(db: Session, invoice_id: int, payload: CreditNoteCreate) -
     invoice.pending_balance = money(Decimal(invoice.pending_balance or 0) - grand_total)
     invoice.status = _derive_balance_status(invoice)
     customer = invoice.customer
-    customer.pending_payment = money(max(Decimal("0"), Decimal(customer.pending_payment or 0) - grand_total))
+    # Not floored at zero: crediting a settled invoice genuinely leaves the
+    # business owing the customer, and that has to stay visible on the account.
+    customer.pending_payment = money(Decimal(customer.pending_payment or 0) - grand_total)
     db.add(credit_note)
     db.flush()
     interstate = Decimal(invoice.igst or 0) > 0

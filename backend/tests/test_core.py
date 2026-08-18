@@ -600,17 +600,106 @@ def test_credit_note_reduces_balance_and_can_be_cancelled():
         assert again.json()["status"] == "Cancelled"
 
 
-def test_credit_note_cannot_exceed_pending_balance():
+def test_multiple_partial_credit_notes_stack_against_one_invoice():
+    """A credit note covers only the lines/quantities actually returned, so an
+    invoice can carry several of them until the pending balance is exhausted."""
     with TestClient(app) as client:
         invoice = _create_paid_invoice(client)
-        over_amount = Decimal(invoice["pending_balance"]) + Decimal("1000")
+        pending_before = Decimal(invoice["pending_balance"])
+
+        def partial(qty, rate, reason):
+            amount = Decimal(qty) * Decimal(rate)
+            res = client.post(f"/api/invoices/{invoice['id']}/credit-notes", json={
+                "note_date": "2026-07-15",
+                "reason": reason,
+                "items": [{
+                    "description": "Sliding Window return", "category": "Sliding Window",
+                    "hsn_code": "3925.20.00", "unit": "Sq. Ft.", "quantity": str(qty),
+                    "rate": str(rate), "gst_percent": "18", "amount": str(amount),
+                }],
+            })
+            assert res.status_code == 201, res.text
+            return Decimal(res.json()["grand_total"])
+
+        first = partial(2, 500, "Two panels returned damaged")
+        second = partial(1, 250, "Half of one more panel credited")
+
+        # Each note is a fraction of the invoice, and they accumulate.
+        assert first == Decimal("1180.00")
+        assert second == Decimal("295.00")
+        after = client.get(f"/api/invoices/{invoice['id']}").json()
+        assert Decimal(after["pending_balance"]) == pending_before - first - second
+        assert Decimal(after["pending_balance"]) > 0  # invoice is not fully credited
+
+        notes = [n for n in client.get("/api/credit-notes").json() if n["invoice_id"] == invoice["id"]]
+        assert len(notes) == 2
+
+
+def test_credit_note_cannot_exceed_invoice_value():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client)
+        over_amount = Decimal(invoice["grand_total"]) + Decimal("1000")
         oversized = client.post(f"/api/invoices/{invoice['id']}/credit-notes", json={
             "note_date": "2026-07-15",
             "reason": "Too much",
             "items": [{"description": "Oversized credit", "quantity": "1", "rate": str(over_amount), "gst_percent": "0"}],
         })
         assert oversized.status_code == 400
-        assert "pending balance" in oversized.json()["detail"].lower()
+        assert "cannot exceed" in oversized.json()["detail"].lower()
+
+
+def test_credit_note_allowed_on_settled_invoice_and_leaves_customer_in_credit():
+    """Goods returned after the invoice was paid: section 34 still applies, and the
+    money now runs the other way, so the receivable goes negative."""
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client)
+        # Settle the invoice in full first.
+        pay = client.post(f"/api/invoices/{invoice['id']}/payments", json={
+            "payment_date": "2026-07-10", "mode": "NEFT", "reference_number": "SETTLE",
+            "amount": str(Decimal(invoice["pending_balance"])), "received_by": "Arun Verma", "notes": "",
+        })
+        assert pay.status_code == 201, pay.text
+        assert pay.json()["status"] == "Paid"
+        assert Decimal(pay.json()["pending_balance"]) == 0
+
+        customer_id = invoice["customer_id"]
+        customer_before = Decimal(client.get(f"/api/customers/{customer_id}/profile").json()["customer"]["pending_payment"])
+
+        cn = client.post(f"/api/invoices/{invoice['id']}/credit-notes", json={
+            "note_date": "2026-07-20",
+            "reason": "Panel returned after payment",
+            "items": [{"description": "Sliding Window return", "quantity": "1", "rate": "1000", "gst_percent": "18"}],
+        })
+        assert cn.status_code == 201, cn.text
+        credited = Decimal(cn.json()["grand_total"])
+        assert credited == Decimal("1180.00")
+
+        after = client.get(f"/api/invoices/{invoice['id']}").json()
+        assert Decimal(after["pending_balance"]) == -credited  # business now owes the customer
+        customer_after = Decimal(client.get(f"/api/customers/{customer_id}/profile").json()["customer"]["pending_payment"])
+        assert customer_after == customer_before - credited
+
+        rows = client.get("/api/trial-balance").json()
+        assert sum(Decimal(str(r["debit"])) for r in rows) == sum(Decimal(str(r["credit"])) for r in rows)
+
+
+def test_credit_note_blocked_after_section_34_november_deadline():
+    with TestClient(app) as client:
+        invoice = _create_paid_invoice(client)  # invoiced in FY 2026-27
+        late = client.post(f"/api/invoices/{invoice['id']}/credit-notes", json={
+            "note_date": "2027-12-01",  # one day past 30-Nov-2027
+            "reason": "Very late return",
+            "items": [{"description": "Late credit", "quantity": "1", "rate": "500", "gst_percent": "18"}],
+        })
+        assert late.status_code == 400
+        assert "30-11-2027" in late.json()["detail"]
+
+        on_time = client.post(f"/api/invoices/{invoice['id']}/credit-notes", json={
+            "note_date": "2027-11-30",  # the last permitted day
+            "reason": "Just in time",
+            "items": [{"description": "Late credit", "quantity": "1", "rate": "500", "gst_percent": "18"}],
+        })
+        assert on_time.status_code == 201, on_time.text
 
 
 def test_debit_note_increases_balance_and_can_be_cancelled():
@@ -2147,6 +2236,39 @@ def test_gstr1_json_export_includes_credit_note_in_cdnr():
         note = next(n for n in cdnr_entry["nt"] if n["nt_num"] == credit_note.json()["number"])
         assert note["ntty"] == "C"
         assert note["itms"][0]["itm_det"]["txval"] == 1000.0
+
+
+def test_gstr1_json_export_nets_unregistered_credit_note_into_b2cs():
+    """A note to a buyer with no GSTIN has no CDNR row to sit in. Below the B2CL
+    threshold it must reduce the consolidated B2CS figures instead of vanishing."""
+    with TestClient(app) as client:
+        business_state = client.get("/api/business-settings").json()["state"]
+        customer = _create_customer(client, "JSON B2CS Credit Buyer", state=business_state)
+        invoice = _create_invoice_for_customer(client, customer["id"])
+        pos = GST_STATE_CODES.get(business_state)
+
+        def intra_bucket():
+            payload = client.get("/api/gst/gstr1/json", params=PERIOD).json()
+            return next(b for b in payload["b2cs"] if b["sply_ty"] == "INTRA" and b["pos"] == pos)
+
+        before = intra_bucket()
+        note = client.post(f"/api/invoices/{invoice['id']}/credit-notes", json={
+            "note_date": "2026-02-01", "reason": "Return", "items": [{
+                "description": "Partial return", "category": "Sliding Window", "hsn_code": "3925.20.00",
+                "unit": "Sq. Ft.", "quantity": "1", "rate": "1000", "gst_percent": "18", "amount": "1000",
+            }],
+        })
+        assert note.status_code == 201, note.text
+
+        after = intra_bucket()
+        assert abs(after["txval"] - (before["txval"] - 1000.0)) < 0.01
+        assert abs(after["camt"] - (before["camt"] - 90.0)) < 0.01
+        assert abs(after["samt"] - (before["samt"] - 90.0)) < 0.01
+
+        # The note is unregistered and intra-state, so it belongs in neither table.
+        payload = client.get("/api/gst/gstr1/json", params=PERIOD).json()
+        assert all(n["nt_num"] != note.json()["number"] for entry in payload["cdnr"] for n in entry["nt"])
+        assert all(n["nt_num"] != note.json()["number"] for n in payload["cdnur"])
 
 
 def test_gstr1_json_export_hsn_section_matches_summary_taxable_value():

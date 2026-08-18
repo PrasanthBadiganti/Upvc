@@ -297,6 +297,12 @@ class InvoiceItemRead(ORMModel):
     gst_percent: Decimal
     amount: Decimal
     hsn_code: str
+    # Carried from the quotation so the invoice shows the same columns.
+    style: str = ""
+    width_mm: Decimal = Decimal("0")
+    height_mm: Decimal = Decimal("0")
+    sft: Decimal = Decimal("0")
+    piece_qty: Decimal = Decimal("0")
 
 
 class BankAccountBase(BaseModel):

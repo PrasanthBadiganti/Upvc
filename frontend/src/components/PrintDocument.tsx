@@ -25,7 +25,7 @@ const inr = (value: number | string | undefined, decimals = 2) => {
     while (head.length > 2) { out = `${head.slice(-2)},${out}`; head = head.slice(0, -2); }
     if (head) out = `${head},${out}`;
   } else { out = head; }
-  return `${sign}₹${out}${frac ? `.${frac}` : ''}`;
+  return `${sign}₹ ${out}${frac ? `.${frac}` : ''}`;
 };
 
 const num = (value: number | string | undefined, decimals = 2) =>
@@ -40,7 +40,14 @@ const day = (iso: string) => {
 
 const DOT = ' · ';
 
-type Row = { label: string; value: string; kind?: 'discount' | 'total' };
+// Size and quantity now have their own columns, so the sub-line under the item
+// name carries the specification the customer is actually being quoted on.
+const specLine = (it: Quotation['items'][number]) =>
+  [it.location, it.profile, it.color, it.track, it.glass, it.glass_color,
+    it.hardware, it.reinforcement, it.mesh]
+    .map(v => (v || '').trim()).filter(Boolean).join(DOT);
+
+type Row = { label: string; value: string; kind?: 'discount' | 'total' | 'paid' | 'due' };
 
 function Letterhead({ business }: { business: BusinessSettings }) {
   const lines = [
@@ -99,12 +106,44 @@ function Summary({ rows }: { rows: Row[] }) {
   );
 }
 
+// Same column set as the quotation so a customer can lay the two side by side,
+// plus HSN, which a tax invoice must carry and a quotation need not.
 function ItemsHead() {
   return (
     <thead><tr>
-      <th className="c-num">S.No</th><th>Description</th><th className="c-hsn">HSN</th>
-      <th className="c-qty">Qty</th><th className="c-unit">Unit</th>
-      <th className="c-rate">Rate</th><th className="c-amt">Amount</th>
+      <th className="c-num">S.No</th><th className="c-spec">Item</th>
+      <th className="c-hsn">HSN</th>
+      <th className="c-dim">Width (mm)</th><th className="c-dim">Height (mm)</th>
+      <th className="c-sftu">SFT</th><th className="c-qty">Qty</th>
+      <th className="c-sft">Total SFT</th>
+      <th className="c-rate">Rate / SFT</th><th className="c-amt">Total</th>
+    </tr></thead>
+  );
+}
+
+// A directly-raised invoice or a migrated opening balance has no window
+// dimensions, so those cells show a dash rather than a misleading zero.
+const dim = (value: number | string | undefined) =>
+  Number(value || 0) > 0 ? num(value, 0) : '--';
+
+// The stored description flattens the size in ("Sliding Window 2 Track 1200x1200mm"),
+// which now duplicates the Width/Height columns. Rebuild it the way the quotation
+// names the item, and fall back to the raw description when there is no category.
+const itemName = (it: Invoice['items'][number]) =>
+  [it.category, it.style].filter(Boolean).join(' ').trim() || it.description;
+
+// The quotation prices by area, so it breaks the size out into its own columns
+// rather than folding them into the description the way the invoice does.
+// Per-unit SFT sits next to Total SFT so the customer can follow the whole sum:
+// SFT x Qty = Total SFT, then Total SFT x Rate = Total.
+function QuoteItemsHead() {
+  return (
+    <thead><tr>
+      <th className="c-num">S.No</th><th className="c-spec">Item</th>
+      <th className="c-dim">Width (mm)</th><th className="c-dim">Height (mm)</th>
+      <th className="c-sftu">SFT</th><th className="c-qty">Qty</th>
+      <th className="c-sft">Total SFT</th>
+      <th className="c-rate">Rate / SFT</th><th className="c-amt">Total</th>
     </tr></thead>
   );
 }
@@ -163,24 +202,21 @@ export function QuotationPrintDoc({ quotation: q, business }: {
           ['Ref No:', q.number], ['Date:', day(q.quotation_date)],
           ['Valid Till:', day(valid.toISOString().slice(0, 10))],
         ]} />
-        <table className="doc-table">
-          <ItemsHead />
+        <table className="doc-table q-table">
+          <QuoteItemsHead />
           <tbody>
             {q.items.map((it, i) => (
               <tr key={it.id ?? i}>
                 <td className="c-num">{i + 1}</td>
-                <td>
-                  {[it.category, it.style].filter(Boolean).join(' ')}
-                  <div className="doc-item-sub">
-                    {[Number(it.width_mm) && Number(it.height_mm)
-                      ? `${num(it.width_mm, 0)} x ${num(it.height_mm, 0)} mm` : '',
-                      it.quantity ? `${it.quantity} nos` : '', it.location]
-                      .filter(Boolean).join(DOT)}
-                  </div>
+                <td className="c-spec">
+                  {[it.category, it.style].filter(Boolean).join(' ') || '-'}
+                  {specLine(it) && <div className="doc-item-sub">{specLine(it)}</div>}
                 </td>
-                <td>{it.hsn_code || '-'}</td>
-                <td className="c-qty">{num(it.total_sft)}</td>
-                <td>Sq. Ft.</td>
+                <td className="c-dim">{num(it.width_mm, 0)}</td>
+                <td className="c-dim">{num(it.height_mm, 0)}</td>
+                <td className="c-sftu">{num(Math.round(Number(it.sft || 0)), 0)}</td>
+                <td className="c-qty">{num(it.quantity, 0)}</td>
+                <td className="c-sft">{num(Math.round(Number(it.total_sft || 0)), 0)}</td>
                 <td className="c-rate">{inr(it.rate_per_sft)}</td>
                 <td className="c-amt">{inr(it.amount)}</td>
               </tr>
@@ -217,9 +253,11 @@ export function InvoicePrintDoc({ invoice: inv, business }: {
   charges.filter(c => !c.taxable)
     .forEach(c => rows.push({ label: `${c.label} (no GST):`, value: inr(c.amount) }));
   rows.push({ label: 'GRAND TOTAL:', value: inr(inv.grand_total), kind: 'total' });
+  // Shown after the grand total, so the balance carries its own emphasis -
+  // otherwise it reads as a footnote below the highlighted total band.
   if (Number(inv.paid_amount || 0) > 0) {
-    rows.push({ label: 'Amount Paid:', value: inr(inv.paid_amount) });
-    rows.push({ label: 'Balance Due:', value: inr(inv.pending_balance) });
+    rows.push({ label: 'Amount Paid:', value: inr(inv.paid_amount), kind: 'paid' });
+    rows.push({ label: 'Balance Due:', value: inr(inv.pending_balance), kind: 'due' });
   }
 
   const billTo = [inv.customer.name,
@@ -242,16 +280,19 @@ export function InvoicePrintDoc({ invoice: inv, business }: {
           ['Invoice No:', inv.number], ['Date:', day(inv.invoice_date)],
           ['Due Date:', day(inv.due_date)], ['Status:', inv.status],
         ]} />
-        <table className="doc-table">
+        <table className="doc-table i-table">
           <ItemsHead />
           <tbody>
             {inv.items.map((it, i) => (
               <tr key={it.id ?? i}>
                 <td className="c-num">{i + 1}</td>
-                <td>{it.description}</td>
-                <td>{it.hsn_code || '-'}</td>
-                <td className="c-qty">{num(it.quantity)}</td>
-                <td>{it.unit || 'Nos'}</td>
+                <td className="c-spec">{itemName(it)}</td>
+                <td className="c-hsn">{it.hsn_code || '--'}</td>
+                <td className="c-dim">{dim(it.width_mm)}</td>
+                <td className="c-dim">{dim(it.height_mm)}</td>
+                <td className="c-sftu">{dim(Math.round(Number(it.sft || 0)))}</td>
+                <td className="c-qty">{dim(it.piece_qty)}</td>
+                <td className="c-sft">{num(Math.round(Number(it.quantity || 0)), 0)}</td>
                 <td className="c-rate">{inr(it.rate)}</td>
                 <td className="c-amt">{inr(it.amount)}</td>
               </tr>

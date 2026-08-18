@@ -79,6 +79,11 @@ GST_STATE_CODES = {
 }
 
 
+# Invoice value above which an inter-state supply to an unregistered buyer is
+# reported individually (B2CL) rather than in the consolidated B2CS table.
+B2CL_THRESHOLD = Decimal("250000")
+
+
 def _place_of_supply_code(customer_gstin: str, customer_state: str, business_state: str) -> str:
     gstin = (customer_gstin or "").strip()
     if len(gstin) >= 2 and gstin[:2].isdigit():
@@ -338,10 +343,6 @@ def gstr1_offline_json(db: Session, from_date: date, to_date: date) -> dict:
             bucket["samt"] += Decimal(invoice.sgst)
 
     b2b = [{"ctin": gstin, "inv": invs} for gstin, invs in b2b_by_gstin.items()]
-    b2cs = [
-        {"sply_ty": b["sply_ty"], "pos": b["pos"], "typ": b["typ"], "rt": b["rt"], "txval": float(money(b["txval"])), "iamt": float(money(b["iamt"])), "camt": float(money(b["camt"])), "samt": float(money(b["samt"]))}
-        for b in b2cs_buckets.values()
-    ]
 
     credit_notes = db.scalars(
         select(models.CreditNote)
@@ -355,10 +356,9 @@ def gstr1_offline_json(db: Session, from_date: date, to_date: date) -> dict:
     ).unique().all()
 
     cdnr_by_gstin: dict[str, list[dict]] = {}
+    cdnur: list[dict] = []
     for ntty, notes in (("C", credit_notes), ("D", debit_notes)):
         for note in notes:
-            if not note.customer.gst_number:
-                continue  # unregistered-recipient notes (CDNUR) are a separate section, not modeled here
             interstate = Decimal(note.invoice.igst or 0) > 0
             gst = money(note.gst)
             if interstate:
@@ -368,18 +368,49 @@ def gstr1_offline_json(db: Session, from_date: date, to_date: date) -> dict:
                 iamt, camt, samt = 0.0, float(half), float(money(gst - half))
             rate = float(money(gst / note.subtotal * 100)) if Decimal(note.subtotal) > 0 else 0.0
             pos = _place_of_supply_code(note.customer.gst_number, note.customer.state, business_state)
-            nt = {
-                "ntty": ntty,
-                "nt_num": note.number,
-                "nt_dt": note.note_date.strftime("%d-%m-%Y"),
-                "val": float(note.grand_total),
-                "pos": pos,
-                "rchrg": "N",
-                "inv_typ": "R",
-                "itms": [{"num": 1, "itm_det": {"rt": rate, "txval": float(note.subtotal), "iamt": iamt, "camt": camt, "samt": samt, "csamt": 0.0}}],
-            }
-            cdnr_by_gstin.setdefault(note.customer.gst_number, []).append(nt)
+            itms = [{"num": 1, "itm_det": {"rt": rate, "txval": float(note.subtotal), "iamt": iamt, "camt": camt, "samt": samt, "csamt": 0.0}}]
+
+            if note.customer.gst_number:
+                cdnr_by_gstin.setdefault(note.customer.gst_number, []).append({
+                    "ntty": ntty,
+                    "nt_num": note.number,
+                    "nt_dt": note.note_date.strftime("%d-%m-%Y"),
+                    "val": float(note.grand_total),
+                    "pos": pos,
+                    "rchrg": "N",
+                    "inv_typ": "R",
+                    "itms": itms,
+                })
+            elif interstate and Decimal(note.invoice.grand_total) > B2CL_THRESHOLD:
+                # Notes to unregistered buyers get their own table only where the
+                # original supply was an inter-state B2C invoice above the B2CL
+                # threshold; everything else is netted into b2cs below.
+                cdnur.append({
+                    "typ": "B2CL",
+                    "ntty": ntty,
+                    "nt_num": note.number,
+                    "nt_dt": note.note_date.strftime("%d-%m-%Y"),
+                    "val": float(note.grand_total),
+                    "pos": pos,
+                    "itms": itms,
+                })
+            else:
+                sply_ty = "INTER" if interstate else "INTRA"
+                bucket = b2cs_buckets.setdefault(
+                    (sply_ty, pos, rate),
+                    {"sply_ty": sply_ty, "pos": pos, "typ": "OE", "rt": rate, "txval": Decimal("0"), "iamt": Decimal("0"), "camt": Decimal("0"), "samt": Decimal("0")},
+                )
+                sign = Decimal("-1") if ntty == "C" else Decimal("1")
+                bucket["txval"] += sign * Decimal(note.subtotal)
+                bucket["iamt"] += sign * money(Decimal(str(iamt)))
+                bucket["camt"] += sign * money(Decimal(str(camt)))
+                bucket["samt"] += sign * money(Decimal(str(samt)))
+
     cdnr = [{"ctin": gstin, "nt": notes} for gstin, notes in cdnr_by_gstin.items()]
+    b2cs = [
+        {"sply_ty": b["sply_ty"], "pos": b["pos"], "typ": b["typ"], "rt": b["rt"], "txval": float(money(b["txval"])), "iamt": float(money(b["iamt"])), "camt": float(money(b["camt"])), "samt": float(money(b["samt"]))}
+        for b in b2cs_buckets.values()
+    ]
 
     hsn_rows: dict[str, dict] = {}
 
@@ -446,6 +477,7 @@ def gstr1_offline_json(db: Session, from_date: date, to_date: date) -> dict:
         "b2b": b2b,
         "b2cs": b2cs,
         "cdnr": cdnr,
+        "cdnur": cdnur,
         "hsn": {"data": hsn_data},
     }
 

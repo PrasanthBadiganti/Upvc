@@ -109,6 +109,14 @@ export type InvoiceItem = {
   gst_percent: number | string;
   amount: number | string;
   hsn_code: string;
+  // Carried over from the quotation. Zero on lines with no window dimensions
+  // (directly-raised invoices, opening balances). `quantity` is the total sq.ft.;
+  // `piece_qty` is the number of units.
+  style?: string;
+  width_mm?: number | string;
+  height_mm?: number | string;
+  sft?: number | string;
+  piece_qty?: number | string;
 };
 
 export type BankAccount = {

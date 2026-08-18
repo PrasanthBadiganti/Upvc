@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Ban, CalendarDays, Check, Download, FileMinus, FilePlus2, FileText, MapPin, Printer, RotateCcw, Share2, UserRound, WalletCards } from 'lucide-react';
+import { Ban, CalendarDays, Check, Download, FileMinus, FilePlus2, FileText, MapPin, Plus, Printer, RotateCcw, Share2, Trash2, UserRound, WalletCards } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../api';
 import { Button, Card, Field, Input, Loading, Modal, PageHeader, Select } from '../components/UI';
@@ -9,6 +9,15 @@ import { InvoicePrintDoc } from '../components/PrintDocument';
 import { printDocument } from '../lib/print';
 import { currency, shortDate } from '../utils';
 import { useConfirm } from '../contexts/ConfirmContext';
+
+// Directly-raised invoices and migrated opening balances carry no window
+// dimensions, so those cells read as a dash rather than a misleading zero.
+const dim = (value: number | string | undefined) =>
+  Number(value || 0) > 0 ? Number(value).toLocaleString('en-IN', { maximumFractionDigits: 0 }) : '--';
+
+// The size is now its own column, so drop it from the name the way the quotation does.
+const itemName = (it: Invoice['items'][number]) =>
+  [it.category, it.style].filter(Boolean).join(' ').trim() || it.description;
 
 const noteItemFromInvoiceItem = (item: Invoice['items'][number]): NoteItem => ({
   description: item.description,
@@ -50,7 +59,7 @@ export default function InvoiceDetails(){
   const dueDate=new Date(`${invoice.due_date}T00:00:00`);
   const today=new Date(); today.setHours(0,0,0,0);
   const daysToDue=Math.round((dueDate.getTime()-today.getTime())/86400000);
-  const dueStatus=Number(invoice.pending_balance)<=0?'Fully paid':daysToDue<0?`${Math.abs(daysToDue)} day${Math.abs(daysToDue)===1?'':'s'} overdue`:daysToDue===0?'Due today':`${daysToDue} day${daysToDue===1?'':'s'} remaining`;
+  const dueStatus=Number(invoice.pending_balance)<0?'Credit balance':Number(invoice.pending_balance)===0?'Fully paid':daysToDue<0?`${Math.abs(daysToDue)} day${Math.abs(daysToDue)===1?'':'s'} overdue`:daysToDue===0?'Due today':`${daysToDue} day${daysToDue===1?'':'s'} remaining`;
 
   const openNote=(type:'credit'|'debit')=>{setNoteType(type);setNoteForm({note_date:new Date().toISOString().slice(0,10),reason:'',items:invoice.items.map(noteItemFromInvoiceItem)});};
   const updateNoteItem=(index:number,key:keyof NoteItem,value:string)=>{
@@ -61,6 +70,11 @@ export default function InvoiceDetails(){
       return next;
     })}));
   };
+  // A note may cover only part of the invoice: drop the lines that are not being
+  // credited/debited rather than zeroing their quantity, so the printed note and
+  // the GSTR-1 HSN summary carry only the lines that actually moved.
+  const removeNoteItem=(index:number)=>setNoteForm(prev=>({...prev,items:prev.items.filter((_,i)=>i!==index)}));
+  const addNoteItem=()=>setNoteForm(prev=>({...prev,items:[...prev.items,{description:'',category:'',hsn_code:'',unit:'Nos',quantity:1,rate:0,gst_percent:invoice?.items[0]?.gst_percent??18,amount:0}]}));
   const submitNote=async(e:FormEvent)=>{
     e.preventDefault();
     if(!noteType) return;
@@ -72,7 +86,14 @@ export default function InvoiceDetails(){
     } finally { setNoteSaving(false); }
   };
   return <>
-    <PageHeader title="Invoice Details" action={<div className="action-group">{cancelled?<Button tone="secondary" onClick={reopen}><RotateCcw size={15}/> Reopen Invoice</Button>:<Button tone="danger" onClick={cancel}><Ban size={15}/> Cancel Invoice</Button>}</div>} />
+    <PageHeader title="Invoice Details" action={<div className="action-group detail-actions">
+      <Button onClick={()=>setOpen(true)} disabled={cancelled||Number(invoice.pending_balance)<=0}><Plus size={15}/> Record Payment</Button>
+      <Button tone="secondary" onClick={()=>openNote('credit')} disabled={cancelled}><FileMinus size={15}/> Credit Note</Button>
+      <Button tone="secondary" onClick={()=>openNote('debit')} disabled={cancelled}><FilePlus2 size={15}/> Debit Note</Button>
+      <Button tone="secondary" onClick={download}><Printer size={15}/> Print / Save PDF</Button>
+      <Button tone="secondary" onClick={share}><Share2 size={15}/> Share</Button>
+      {cancelled?<Button tone="secondary" onClick={reopen}><RotateCcw size={15}/> Reopen Invoice</Button>:<Button tone="danger" onClick={cancel}><Ban size={15}/> Cancel Invoice</Button>}
+    </div>} />
     {cancelled&&<div className="toast">This invoice is cancelled. Payments are blocked until it is reopened.</div>}
     {invoice.quotation && <div className="invoice-badge"><span className="badge green"><Check size={13}/> Converted from Quotation {invoice.quotation.number}</span></div>}
     <div className="metric-grid invoice-summary-cards">
@@ -85,12 +106,13 @@ export default function InvoiceDetails(){
     </div>
     <div className="invoice-layout">
       <div className="invoice-left">
-        <Card className="invoice-table-card"><div className="card-head"><h3>Invoice Items Summary</h3></div><div className="table-wrap"><table className="data-table"><thead><tr><th>#</th><th>Item Description</th><th>HSN</th><th>Category</th><th>Unit</th><th>Qty</th><th>Rate (Rs.)</th><th>GST %</th><th>Amount (Rs.)</th></tr></thead><tbody>{invoice.items.map((item,i)=><tr key={item.id}><td>{i+1}</td><td>{item.description}</td><td>{item.hsn_code || '--'}</td><td>{item.category}</td><td>{item.unit}</td><td>{item.quantity}</td><td className="amount">{Number(item.rate).toLocaleString('en-IN',{minimumFractionDigits:2})}</td><td>{item.gst_percent}%</td><td className="amount">{Number(item.amount).toLocaleString('en-IN',{minimumFractionDigits:2})}</td></tr>)}<tr className="invoice-totals"><td colSpan={7}/><td>Subtotal</td><td className="amount">{currency(invoice.subtotal,2)}</td></tr>{Number(invoice.transport)!==0&&<tr className="invoice-totals"><td colSpan={7}/><td>Transport</td><td className="amount">{currency(invoice.transport,2)}</td></tr>}{(invoice.charges??[]).map(ch=><tr className="invoice-totals" key={ch.id}><td colSpan={7}/><td>{ch.label}{!ch.taxable&&<span className="muted"> (no GST)</span>}</td><td className="amount">{currency(ch.amount,2)}</td></tr>)}{Number(invoice.discount)!==0&&<tr className="invoice-totals"><td colSpan={7}/><td>Discount</td><td className="amount">-{currency(invoice.discount,2)}</td></tr>}{Number(invoice.igst)>0?<tr className="invoice-totals"><td colSpan={7}/><td>IGST</td><td className="amount">{currency(invoice.igst,2)}</td></tr>:<><tr className="invoice-totals"><td colSpan={7}/><td>CGST (9%)</td><td className="amount">{currency(invoice.cgst,2)}</td></tr><tr className="invoice-totals"><td colSpan={7}/><td>SGST (9%)</td><td className="amount">{currency(invoice.sgst,2)}</td></tr></>}<tr className="invoice-totals grand"><td colSpan={7}/><td>Grand Total</td><td className="amount">{currency(invoice.grand_total,2)}</td></tr></tbody></table></div></Card>
+        <Card className="invoice-table-card"><div className="card-head"><h3>Invoice Items Summary</h3></div><div className="table-wrap"><table className="data-table"><thead><tr><th>#</th><th>Item</th><th>HSN</th><th>Width (mm)</th><th>Height (mm)</th><th>SFT</th><th>Qty</th><th>Total SFT</th><th>Rate / SFT</th><th>GST %</th><th>Total</th></tr></thead><tbody>{invoice.items.map((item,i)=><tr key={item.id}><td>{i+1}</td><td title={item.description}>{itemName(item)}</td><td>{item.hsn_code || '--'}</td><td className="amount">{dim(item.width_mm)}</td><td className="amount">{dim(item.height_mm)}</td><td className="amount">{dim(Math.round(Number(item.sft||0)))}</td><td className="amount">{dim(item.piece_qty)}</td><td className="amount">{Math.round(Number(item.quantity||0)).toLocaleString('en-IN')}</td><td className="amount">{Number(item.rate).toLocaleString('en-IN',{minimumFractionDigits:2})}</td><td>{item.gst_percent}%</td><td className="amount">{Number(item.amount).toLocaleString('en-IN',{minimumFractionDigits:2})}</td></tr>)}<tr className="invoice-totals"><td colSpan={9}/><td>Subtotal</td><td className="amount">{currency(invoice.subtotal,2)}</td></tr>{Number(invoice.transport)!==0&&<tr className="invoice-totals"><td colSpan={9}/><td>Transport</td><td className="amount">{currency(invoice.transport,2)}</td></tr>}{(invoice.charges??[]).map(ch=><tr className="invoice-totals" key={ch.id}><td colSpan={9}/><td>{ch.label}{!ch.taxable&&<span className="muted"> (no GST)</span>}</td><td className="amount">{currency(ch.amount,2)}</td></tr>)}{Number(invoice.discount)!==0&&<tr className="invoice-totals"><td colSpan={9}/><td>Discount</td><td className="amount">-{currency(invoice.discount,2)}</td></tr>}{Number(invoice.igst)>0?<tr className="invoice-totals"><td colSpan={9}/><td>IGST</td><td className="amount">{currency(invoice.igst,2)}</td></tr>:<><tr className="invoice-totals"><td colSpan={9}/><td>CGST (9%)</td><td className="amount">{currency(invoice.cgst,2)}</td></tr><tr className="invoice-totals"><td colSpan={9}/><td>SGST (9%)</td><td className="amount">{currency(invoice.sgst,2)}</td></tr></>}<tr className="invoice-totals grand"><td colSpan={9}/><td>Grand Total</td><td className="amount">{currency(invoice.grand_total,2)}</td></tr></tbody></table></div></Card>
         <Card className="invoice-table-card"><div className="card-head"><h3>Payment History</h3></div><div className="table-wrap"><table className="data-table"><thead><tr><th>#</th><th>Payment Date</th><th>Mode of Payment</th><th>Bank Account</th><th>Reference No.</th><th>Amount (Rs.)</th><th>Received By</th><th>Notes</th><th>Receipt</th></tr></thead><tbody>{invoice.payments.length?invoice.payments.map((p,i)=><tr key={p.id}><td>{i+1}</td><td>{shortDate(p.payment_date)}</td><td>{p.mode}</td><td>{p.bank_account?.name || '--'}</td><td>{p.reference_number}</td><td className="amount">{currency(p.amount,2)}</td><td>{p.received_by}</td><td>{p.notes}</td><td><button className="mini-button" title="Download receipt" onClick={()=>receipt(p.id)}><Download size={14}/></button></td></tr>):<tr><td colSpan={9} className="muted">No payments recorded</td></tr>}</tbody></table></div></Card>
-        <div className="invoice-actions"><Button onClick={()=>setOpen(true)} disabled={cancelled||Number(invoice.pending_balance)<=0}>+ Record Payment</Button><Button tone="secondary" onClick={()=>openNote('credit')} disabled={cancelled||Number(invoice.pending_balance)<=0}><FileMinus size={15}/> Create Credit Note</Button><Button tone="secondary" onClick={()=>openNote('debit')} disabled={cancelled}><FilePlus2 size={15}/> Create Debit Note</Button><Button tone="secondary" onClick={download}><Printer size={15}/> Print Invoice</Button><Button tone="secondary" onClick={download}><Download size={15}/> Download PDF</Button><Button tone="secondary" onClick={share}><Share2 size={15}/> Share Invoice</Button></div>
       </div>
       <aside>
-        <Card className="payment-summary"><h3>Payment Summary</h3><div className="payment-number"><span>Grand Total</span><strong style={{color:'#1561ec'}}>{currency(invoice.grand_total,2)}</strong></div><div className="payment-number green"><span>Paid Amount</span><strong>{currency(invoice.paid_amount,2)}</strong></div><div className="payment-number red"><span>Pending Balance</span><strong>{currency(invoice.pending_balance,2)}</strong></div><hr style={{border:0,borderTop:'1px solid #e2e8f0'}}/><div className="payment-number"><span>Payment Due</span><b>{shortDate(invoice.due_date)}</b></div><div className="payment-number"><span>Collection Status</span><strong>{dueStatus}</strong></div></Card>
+        <Card className="payment-summary"><h3>Payment Summary</h3><div className="payment-number"><span>Grand Total</span><strong style={{color:'#1561ec'}}>{currency(invoice.grand_total,2)}</strong></div><div className="payment-number green"><span>Paid Amount</span><strong>{currency(invoice.paid_amount,2)}</strong></div>{Number(invoice.pending_balance)<0
+        ?<div className="payment-number green"><span>Credit Due to Customer</span><strong>{currency(Math.abs(Number(invoice.pending_balance)),2)}</strong></div>
+        :<div className="payment-number red"><span>Pending Balance</span><strong>{currency(invoice.pending_balance,2)}</strong></div>}<hr style={{border:0,borderTop:'1px solid #e2e8f0'}}/><div className="payment-number"><span>Payment Due</span><b>{shortDate(invoice.due_date)}</b></div><div className="payment-number"><span>Collection Status</span><strong>{dueStatus}</strong></div></Card>
       </aside>
     </div>
     <Modal open={open} onClose={()=>setOpen(false)} title={`Record Payment - ${invoice.number}`} width={560}><form onSubmit={submit}><div className="form-grid"><Field label="Payment Date" required><Input type="date" required value={payment.payment_date} onChange={e=>setPayment({...payment,payment_date:e.target.value})}/></Field><Field label="Mode"><Select value={payment.mode} onChange={e=>setPayment({...payment,mode:e.target.value})}><option>NEFT</option><option>UPI</option><option>Cash</option><option>Cheque</option><option>Card</option></Select></Field><Field label="Bank Account"><Select value={payment.bank_account_id ?? ''} onChange={e=>setPayment({...payment,bank_account_id:e.target.value?Number(e.target.value):null})}><option value="">-- None --</option>{bankAccounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field><Field label="Reference Number"><Input value={payment.reference_number} onChange={e=>setPayment({...payment,reference_number:e.target.value})}/></Field><Field label="Amount" required><Input type="number" min="1" max={Number(invoice.pending_balance)} step="0.01" value={payment.amount} onChange={e=>setPayment({...payment,amount:Number(e.target.value)})}/></Field><Field label="Received By"><Input value={payment.received_by} onChange={e=>setPayment({...payment,received_by:e.target.value})}/></Field><Field label="Notes"><Input value={payment.notes} onChange={e=>setPayment({...payment,notes:e.target.value})}/></Field></div><div className="form-actions"><Button type="button" tone="secondary" onClick={()=>setOpen(false)}>Cancel</Button><Button type="submit" disabled={saving}>Record Payment</Button></div></form></Modal>
@@ -101,18 +123,23 @@ export default function InvoiceDetails(){
           <Field label="Note Date" required><Input type="date" required value={noteForm.note_date} onChange={e=>setNoteForm({...noteForm,note_date:e.target.value})}/></Field>
           <Field label="Reason" required><Input required value={noteForm.reason} onChange={e=>setNoteForm({...noteForm,reason:e.target.value})} placeholder={noteType==='credit'?'e.g. Damaged panel returned':'e.g. Installation undercharged'}/></Field>
         </div>
-        <div className="table-wrap"><table className="data-table editable-table"><thead><tr><th>Description</th><th>HSN</th><th>Qty</th><th>Rate (Rs.)</th><th>GST %</th><th>Amount (Rs.)</th></tr></thead><tbody>{noteForm.items.map((row,i)=><tr key={i}>
+        <p className="muted" style={{margin:'0 0 6px',fontSize:12.5}}>{noteType==='credit'?'Remove the lines you are not crediting, or reduce the quantity to credit part of a line.':'Keep only the lines being charged extra, or add a new line for a fresh charge.'}</p>
+        <div className="table-wrap"><table className="data-table editable-table"><thead><tr><th>Description</th><th>HSN</th><th>Qty</th><th>Rate (Rs.)</th><th>GST %</th><th>Amount (Rs.)</th><th>Action</th></tr></thead><tbody>{noteForm.items.map((row,i)=><tr key={i}>
           <td><input value={row.description} onChange={e=>updateNoteItem(i,'description',e.target.value)}/></td>
           <td><input value={row.hsn_code} onChange={e=>updateNoteItem(i,'hsn_code',e.target.value)}/></td>
           <td><input type="number" value={row.quantity} onChange={e=>updateNoteItem(i,'quantity',e.target.value)}/></td>
           <td><input type="number" value={row.rate} onChange={e=>updateNoteItem(i,'rate',e.target.value)}/></td>
           <td><input type="number" value={row.gst_percent} onChange={e=>updateNoteItem(i,'gst_percent',e.target.value)}/></td>
           <td className="amount">{currency(row.amount,2)}</td>
-        </tr>)}</tbody></table></div>
+          <td><button type="button" className="mini-button" title="Remove this line" onClick={()=>removeNoteItem(i)}><Trash2 size={14}/></button></td>
+        </tr>)}
+        {!noteForm.items.length && <tr><td colSpan={7} className="muted">No lines. Add at least one line to issue this note.</td></tr>}
+        </tbody></table></div>
+        <div style={{margin:'8px 0'}}><Button type="button" tone="secondary" onClick={addNoteItem}><Plus size={15}/> Add Line</Button></div>
         <div className="summary-line"><span>Subtotal</span><span>{currency(noteTotals.subtotal,2)}</span></div>
         <div className="summary-line"><span>GST</span><span>{currency(noteTotals.gst,2)}</span></div>
         <div className="summary-line total"><span>{noteType==='credit'?'Credit':'Debit'} Total</span><span>{currency(noteTotals.grand,2)}</span></div>
-        <div className="form-actions"><Button type="button" tone="secondary" onClick={()=>setNoteType(null)}>Cancel</Button><Button type="submit" disabled={noteSaving}>{`Issue ${noteType==='credit'?'Credit':'Debit'} Note`}</Button></div>
+        <div className="form-actions"><Button type="button" tone="secondary" onClick={()=>setNoteType(null)}>Cancel</Button><Button type="submit" disabled={noteSaving||noteTotals.grand<=0}>{`Issue ${noteType==='credit'?'Credit':'Debit'} Note`}</Button></div>
       </form>
     </Modal>
   {business && <InvoicePrintDoc invoice={invoice} business={business} />}

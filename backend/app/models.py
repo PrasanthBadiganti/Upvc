@@ -300,11 +300,22 @@ class InvoiceItem(Base):
     description: Mapped[str] = mapped_column(String(240))
     category: Mapped[str] = mapped_column(String(100), default="")
     unit: Mapped[str] = mapped_column(String(30), default="Sq. Ft.")
+    # NOTE: for area-priced lines `quantity` holds the TOTAL SQ. FT. being billed,
+    # not a piece count - the GST HSN summary reads it as the billed quantity.
+    # The piece count lives in `piece_qty`.
     quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=1)
     rate: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     gst_percent: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=18)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     hsn_code: Mapped[str] = mapped_column(String(20), default="")
+    # Carried over from the quotation so the invoice can show the customer the
+    # same columns they approved. Zero/blank on lines with no window dimensions
+    # (direct invoices, opening balances).
+    style: Mapped[str] = mapped_column(String(100), default="")
+    width_mm: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
+    height_mm: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
+    sft: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
+    piece_qty: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=0)
 
     invoice: Mapped[Invoice] = relationship(back_populates="items")
 
