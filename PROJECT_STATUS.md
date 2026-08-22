@@ -88,7 +88,7 @@ Backs up the current `frontend/dist` into `frontend/dist-backups/` before genera
 
 ```bat
 start-desktop.bat      REM dev run
-build-desktop.bat      REM build desktop-dist/UPVC Pro/UPVC Pro.exe
+build-desktop.bat      REM builds backend/dist/UPVC Pro/UPVC Pro.exe
 ```
 
 Desktop database: `%LOCALAPPDATA%\UPVC Pro\upvc_pro.db` (fallback `%USERPROFILE%\UPVC Pro\upvc_pro.db`).

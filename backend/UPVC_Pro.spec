@@ -1,11 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for UPVC Pro desktop app (one-folder build, BROMS-style).
 
-Entry: desktop.py (starts FastAPI in a thread + opens a pywebview window).
-Bundles the built React app so the frozen exe is self-contained.
+Entry: ../desktop/upvc_desktop.py - starts FastAPI in a thread, then opens a
+pywebview window. Bundles the built React app so the frozen exe is
+self-contained; the `app` package rides along via collect_submodules.
 
-Build:  python -m PyInstaller UPVC_Pro.spec --noconfirm
-Output: dist/UPVC Pro/UPVC Pro.exe
+Run from the backend folder, the same way BROMS builds:
+    python -m PyInstaller UPVC_Pro.spec --noconfirm --distpath dist --workpath build
+Output: backend/dist/UPVC Pro/UPVC Pro.exe
+
+Verify the result before shipping:
+    "dist/UPVC Pro/UPVC Pro.exe" --self-test
 """
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
@@ -40,8 +45,8 @@ datas = [
 datas += collect_data_files("webview")  # pywebview's bundled JS/HTML
 
 a = Analysis(
-    ["desktop.py"],
-    pathex=[],
+    ["../desktop/upvc_desktop.py"],
+    pathex=["."],  # so `app` resolves while the spec runs from backend/
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,

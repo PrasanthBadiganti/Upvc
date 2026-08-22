@@ -18,7 +18,9 @@ def _get_data_dir() -> Path:
     if getenv := os.getenv("UPVC_DATA_DIR"):
         path = Path(getenv)
     elif IS_FROZEN:
-        path = Path(os.getenv("LOCALAPPDATA", Path.home())) / "UPVC Pro"
+        # Writable data lives next to the .exe (easy to find + back up), the
+        # same layout BROMS uses: dist/UPVC Pro/data/upvc_pro.db
+        path = Path(sys.executable).resolve().parent / "data"
     else:
         path = Path(__file__).resolve().parents[1]
 

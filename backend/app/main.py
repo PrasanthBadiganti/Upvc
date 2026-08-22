@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO, StringIO
 import os
 from pathlib import Path
 import sys
+
+logger = logging.getLogger(__name__)
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -102,6 +105,18 @@ def shutdown() -> None:
     scheduler.stop()
 
 
+def _zero_default_for(sql_type: str) -> str:
+    """A NOT NULL column needs a default before SQLite will accept ADD COLUMN."""
+    upper = sql_type.upper()
+    if any(token in upper for token in ("INT", "NUMERIC", "DECIMAL", "FLOAT", "REAL")):
+        return " DEFAULT 0"
+    if "BOOL" in upper:
+        return " DEFAULT 0"
+    if any(token in upper for token in ("DATE", "TIME")):
+        return ""  # leave NULL rather than invent a timestamp
+    return " DEFAULT ''"
+
+
 def ensure_schema() -> None:
     if not engine.url.drivername.startswith("sqlite"):
         return
@@ -167,6 +182,39 @@ def ensure_schema() -> None:
             for column, definition in columns.items():
                 if column not in existing:
                     connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))
+
+        # Backstop: add anything the models declare that the file still lacks.
+        # The hand-written map above only covers columns someone remembered to
+        # list, so a forgotten entry used to crash startup with a raw SQL error
+        # on a customer's machine. Deriving from the metadata cannot fall behind.
+        for table in models.Base.metadata.sorted_tables:
+            rows = list(connection.execute(text(f"PRAGMA table_info({table.name})")))
+            if not rows:
+                continue  # brand-new table; create_all already handled it
+            existing = {row[1] for row in rows}
+            for column in table.columns:
+                if column.name in existing or column.primary_key:
+                    continue
+                try:
+                    sql_type = column.type.compile(engine.dialect)
+                except Exception:
+                    sql_type = "TEXT"
+                default = getattr(column.default, "arg", None)
+                if callable(default):
+                    default = None
+                if default is None:
+                    clause = "" if column.nullable else _zero_default_for(sql_type)
+                elif isinstance(default, bool):
+                    clause = f" DEFAULT {1 if default else 0}"
+                elif isinstance(default, (int, float, Decimal)):
+                    clause = f" DEFAULT {default}"
+                else:
+                    escaped = str(default).replace("'", "''")
+                    clause = f" DEFAULT '{escaped}'"
+                connection.execute(
+                    text(f"ALTER TABLE {table.name} ADD COLUMN {column.name} {sql_type}{clause}")
+                )
+                logger.warning("ensure_schema: added missing column %s.%s", table.name, column.name)
 
 
 def get_or_create_business_settings(db: Session) -> models.BusinessSettings:

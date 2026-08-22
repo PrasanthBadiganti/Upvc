@@ -41,10 +41,18 @@ Then open: http://localhost:5173
 
 Run the build script:
 ```bash
-build-exe.bat
+build-desktop.bat
 ```
 
-This will create: `dist/UPVC-Pro/UPVC-Pro.exe`
+This will create: `backend\dist\UPVC Pro\UPVC Pro.exe`
+
+The script builds the frontend, closes any running copy, clears the previous
+build, bundles with `backend\UPVC_Pro.spec`, then runs the packaged exe's
+`--self-test` and fails the build if it does not pass.
+
+Ship the whole `backend\dist\UPVC Pro` folder, not just the .exe - the exe
+needs the `_internal` folder beside it. Business data lives separately in
+`%LOCALAPPDATA%\UPVC Pro`, so it survives a rebuild.
 
 **What happens during build:**
 1. Builds React frontend to static files
@@ -54,11 +62,11 @@ This will create: `dist/UPVC-Pro/UPVC-Pro.exe`
 
 ### Running the EXE
 
-Simply double-click: `UPVC-Pro.exe`
+Simply double-click: `UPVC Pro.exe`
 
-- Backend runs on: http://127.0.0.1:8000
-- App opens in browser automatically
-- Database is local (SQLite): `upvc_pro.db`
+- Runs in its own desktop window (no browser needed)
+- API binds to 127.0.0.1 on a random free port
+- Database (SQLite) lives in `%LOCALAPPDATA%\UPVC Pro`
 
 ---
 
@@ -75,7 +83,7 @@ python -c "from app.database import engine, Base; Base.metadata.create_all(bind=
 
 ### Database Location
 - Development: `backend/upvc_pro.db`
-- Distribution: Same folder as EXE
+- Distribution: `%LOCALAPPDATA%\UPVC Pro\upvc_pro.db` (survives rebuilds)
 
 ---
 
@@ -110,7 +118,7 @@ UPVC/
 │   └── package.json
 │
 ├── start-app.bat         # Quick start script (Dev)
-├── build-exe.bat         # Build executable
+├── build-desktop.bat     # Build the desktop executable
 ├── launcher.py           # Python launcher
 └── DISTRIBUTION.md       # This file
 ```
@@ -219,8 +227,8 @@ python -c "from app.database import engine, Base; Base.metadata.create_all(bind=
 ### EXE won't start
 Ensure Python path includes required packages. Try running from command line to see errors:
 ```bash
-cd dist/UPVC-Pro
-UPVC-Pro.exe
+cd "backend/dist/UPVC Pro"
+"UPVC Pro.exe" --self-test
 ```
 
 ---
